@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { put } from '@vercel/blob';
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -21,15 +20,24 @@ export default function UploadPage() {
     setUploading(true);
 
     try {
-      // Step 1: Upload PDF to Vercel Blob
-      const blob = await put(`posters/${Date.now()}-${file.name}`, file, {
-        access: 'public',
-        token: process.env.NEXT_PUBLIC_BLOB_READ_WRITE_TOKEN,
+      // Step 1: Upload PDF to Vercel Blob via API
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const blobResponse = await fetch('/api/upload-blob', {
+        method: 'POST',
+        body: formData,
       });
 
-      console.log('Blob uploaded:', blob.url);
+      if (!blobResponse.ok) {
+        const error = await blobResponse.json();
+        throw new Error(error.error || 'Blob upload failed');
+      }
 
-      // Step 2: Save metadata to MongoDB (JSON only, no FormData)
+      const { url: fileUrl } = await blobResponse.json();
+      console.log('Blob uploaded:', fileUrl);
+
+      // Step 2: Save metadata to MongoDB
       const response = await fetch('/api/posters', {
         method: 'POST',
         headers: {
@@ -38,7 +46,7 @@ export default function UploadPage() {
         body: JSON.stringify({
           title: title.trim(),
           author: author.trim() || 'Anonymous',
-          fileUrl: blob.url,
+          fileUrl,
         }),
       });
 
