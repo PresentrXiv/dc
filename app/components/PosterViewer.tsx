@@ -18,11 +18,14 @@ type Comment = {
 };
 
 type Poster = {
-  id: string;
-  title: string;
-  author: string;
-  filepath: string;
-};
+    id: string;
+    title: string;
+    author: string;
+    // Old records have filepath, new records have fileUrl
+    filepath?: string;
+    fileUrl?: string;
+  };
+  
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const [poster, setPoster] = useState<Poster | null>(null);
@@ -116,7 +119,16 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       </div>
     );
   }
+  const pdfUrl = poster.fileUrl || poster.filepath;
 
+  if (!pdfUrl) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600">No PDF file specified.</p>
+      </div>
+    );
+  }
+  
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-4 md:p-8 max-w-5xl">
@@ -134,9 +146,10 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
         <div className="bg-white rounded-lg shadow-lg p-4 mb-6">
           <div className="border rounded overflow-hidden bg-white mb-4">
             <Document
-              file={poster.filepath}
-              onLoadSuccess={onDocumentLoadSuccess}
-            >
+            file={pdfUrl}
+            onLoadSuccess={onDocumentLoadSuccess}
+          >
+          
               <Page 
                 pageNumber={pageNumber}
                 width={typeof window !== 'undefined' ? Math.min(900, window.innerWidth - 64) : 600}
