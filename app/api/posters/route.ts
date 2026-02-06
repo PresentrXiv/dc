@@ -97,22 +97,23 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
+} catch (error: any) {
     console.error("Error saving poster metadata:", error);
-
+  
     return NextResponse.json(
       {
         error: "Failed to save poster metadata",
         marker: MARKER,
+        DEBUG_POSTERS_ROUTE_VERSION: "POSTERS_CATCH_V2_2026_02_06_2200",
         details: {
           name: error?.name,
           message: error?.message,
           code: error?.code,
           codeName: error?.codeName,
         },
-        timings: { totalMs: Date.now() - t0 },
       },
       { status: 500 }
     );
   }
+  
 }
