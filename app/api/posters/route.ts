@@ -3,8 +3,38 @@ import clientPromise from "@/app/lib/mongodb";
 
 const MARKER = "NEW_JSON_ONLY_CODE_2026_02_06";
 
+export async function GET() {
+  try {
+    const client = await clientPromise;
+    const db = client.db("dc");
+
+    const posters = await db
+      .collection("posters")
+      .find({})
+      .sort({ uploadedAt: -1 })
+      .toArray();
+
+    return NextResponse.json(posters);
+  } catch (error: any) {
+    console.error("Error fetching posters:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to fetch posters",
+        marker: MARKER,
+        details: {
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+        },
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const t0 = Date.now();
+
   try {
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("multipart/form-data")) {
@@ -21,6 +51,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     const title = (body?.title ?? "").toString().trim();
     const author = (body?.author ?? "").toString().trim();
+
+    // IMPORTANT: your client sends fileUrl
     const fileUrl = (body?.fileUrl || body?.url || "").toString().trim();
 
     if (!title || !fileUrl) {
@@ -39,7 +71,7 @@ export async function POST(request: NextRequest) {
     const client = await clientPromise;
     const db = client.db("dc");
 
-    // This isolates “Mongo is reachable” from “write is hanging”
+    // Connectivity test (helps diagnose 30s hangs)
     const tPing = Date.now();
     await db.command({ ping: 1 });
     const pingMs = Date.now() - tPing;
@@ -65,16 +97,18 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (err: any) {
-    console.error("POST /api/posters failed:", err);
+  } catch (error: any) {
+    console.error("Error saving poster metadata:", error);
+
     return NextResponse.json(
       {
         error: "Failed to save poster metadata",
         marker: MARKER,
         details: {
-          name: err?.name,
-          message: err?.message,
-          code: err?.code,
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          codeName: error?.codeName,
         },
         timings: { totalMs: Date.now() - t0 },
       },
