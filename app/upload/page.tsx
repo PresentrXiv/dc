@@ -1,133 +1,116 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { upload } from '@vercel/blob/client';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { put } from '@vercel/blob';
 
 export default function UploadPage() {
-  const fileRef = useRef<HTMLInputElement>(null);
-
+  const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string>('');
-  const [error, setError] = useState<string>('');
+  const [uploading, setUploading] = useState(false);
+  const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
-    setStatus('');
-    setBusy(true);
+    if (!file || !title) {
+      alert('Please select a file and enter a title');
+      return;
+    }
+
+    setUploading(true);
 
     try {
-      const file = fileRef.current?.files?.[0];
-      if (!file) throw new Error('Please choose a PDF file.');
-      if (file.type !== 'application/pdf') throw new Error('File must be a PDF.');
-      if (!title.trim()) throw new Error('Title is required.');
-
-      setStatus('Uploading PDF…');
-
-      // 1) Upload PDF directly to Vercel Blob
-      const blob = await upload(file.name, file, {
+      // Step 1: Upload PDF to Vercel Blob
+      const blob = await put(`posters/${Date.now()}-${file.name}`, file, {
         access: 'public',
-        handleUploadUrl: '/api/posters/upload',
       });
 
-      if (!blob?.url) {
-        throw new Error('Blob upload did not return a URL.');
-      }
+      console.log('Blob uploaded:', blob.url);
 
-      setStatus('Saving metadata…');
-
-      // 2) Save poster metadata (including fileUrl) to MongoDB
-      const res = await fetch('/api/posters', {
+      // Step 2: Save metadata to MongoDB (JSON only, no FormData)
+      const response = await fetch('/api/posters', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           title: title.trim(),
-          author: author.trim(),
+          author: author.trim() || 'Anonymous',
           fileUrl: blob.url,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `Failed to save poster (${res.status})`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Metadata save failed:', errorData);
+        alert(`Failed to save poster metadata: ${errorData.error || 'Unknown error'}`);
+        return;
       }
 
-      setStatus('Done! Redirecting…');
-      window.location.href = '/';
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStatus('');
+      const poster = await response.json();
+      console.log('Poster saved:', poster);
+      
+      alert('Poster uploaded successfully!');
+      router.push(`/view/${poster.id}`);
+    } catch (error) {
+      console.error('Error uploading:', error);
+      alert(`Error uploading poster: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
-      setBusy(false);
+      setUploading(false);
     }
   }
 
   return (
-    <div className="max-w-xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-6">Upload a Presentation</h1>
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto p-4 md:p-8 max-w-2xl">
+        <h1 className="text-3xl font-bold mb-6">Upload Presentation</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Title *</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g., My conference talk"
-            required
-            disabled={busy}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Author</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-            placeholder="e.g., Bob Morris"
-            disabled={busy}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">PDF File *</label>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/pdf"
-            className="block w-full text-sm"
-            disabled={busy}
-          />
-        </div>
-
-        {error && (
-          <div className="rounded border border-red-300 bg-red-50 p-3 text-red-800 text-sm">
-            {error}
+        <form onSubmit={handleUpload} className="bg-white rounded-lg shadow-lg p-6">
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Presentation Title *
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Novel Mechanisms in MS Pathology"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+              required
+            />
           </div>
-        )}
 
-        {status && (
-          <div className="rounded border border-gray-200 bg-gray-50 p-3 text-gray-800 text-sm">
-            {status}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Author/Presenter
+            </label>
+            <input
+              type="text"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+              placeholder="Your name (optional)"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+            />
           </div>
-        )}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className={[
-            'w-full rounded px-4 py-2 font-medium transition',
-            busy
-              ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-              : 'bg-black text-white hover:bg-gray-900',
-          ].join(' ')}
-        >
-          {busy ? 'Uploading…' : 'Upload Presentation'}
-        </button>
-      </form>
-    </div>
-  );
-}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              PDF File *
+            </label>
+            <input
+              type="file"
+              accept=".pdf"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+              required
+            />
+            {file && (
+              <p className="text-sm text-gray-600 mt-2">
+                Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button
