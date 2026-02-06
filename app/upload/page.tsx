@@ -24,6 +24,7 @@ export default function UploadPage() {
       // Step 1: Upload PDF to Vercel Blob
       const blob = await put(`posters/${Date.now()}-${file.name}`, file, {
         access: 'public',
+        token: process.env.NEXT_PUBLIC_BLOB_READ_WRITE_TOKEN,
       });
 
       console.log('Blob uploaded:', blob.url);
