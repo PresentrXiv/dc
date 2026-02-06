@@ -21,11 +21,21 @@ export async function GET(
     }
 
     return NextResponse.json(poster);
-  } catch (error) {
-    console.error('Error fetching poster:', error);
+} catch (error: any) {
+    console.error("Error saving poster metadata:", error);
+
     return NextResponse.json(
-      { error: 'Failed to fetch poster' },
+      {
+        error: "Failed to save poster metadata",
+        marker: MARKER,
+        details: {
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          codeName: error?.codeName,
+        },
+      },
       { status: 500 }
     );
   }
-}
+
