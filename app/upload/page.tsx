@@ -14,29 +14,31 @@ export default function UploadPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-
     setError('');
     setStatus('');
     setBusy(true);
 
     try {
-      // --- Basic validation ---
       const file = fileRef.current?.files?.[0];
       if (!file) throw new Error('Please choose a PDF file.');
       if (file.type !== 'application/pdf') throw new Error('File must be a PDF.');
       if (!title.trim()) throw new Error('Title is required.');
 
-      setStatus('Uploading PDF to storage…');
+      setStatus('Uploading PDF…');
 
-      // 1) Upload file directly to Vercel Blob (client upload)
+      // 1) Upload PDF directly to Vercel Blob
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/posters/upload',
       });
 
-      setStatus('Saving poster metadata…');
+      if (!blob?.url) {
+        throw new Error('Blob upload did not return a URL.');
+      }
 
-      // 2) Save metadata (including blob URL) to MongoDB via your API
+      setStatus('Saving metadata…');
+
+      // 2) Save poster metadata (including fileUrl) to MongoDB
       const res = await fetch('/api/posters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,14 +49,12 @@ export default function UploadPage() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data?.error || `Failed to save poster (${res.status})`);
       }
 
       setStatus('Done! Redirecting…');
-
-      // 3) Go back to home page (browse posters)
       window.location.href = '/';
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -75,7 +75,7 @@ export default function UploadPage() {
             className="w-full border rounded px-3 py-2"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g., Intra-pandemic Evolution of SARS-CoV-2"
+            placeholder="e.g., My conference talk"
             required
             disabled={busy}
           />
@@ -101,9 +101,6 @@ export default function UploadPage() {
             className="block w-full text-sm"
             disabled={busy}
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Choose a PDF presentation to upload.
-          </p>
         </div>
 
         {error && (
@@ -131,17 +128,6 @@ export default function UploadPage() {
           {busy ? 'Uploading…' : 'Upload Presentation'}
         </button>
       </form>
-
-      <div className="mt-6 text-xs text-gray-500 space-y-1">
-        <div>
-          If the button never changes to “Uploading…”, it usually means the page is
-          not running as a client component. This file includes <code>'use client'</code>{' '}
-          at the top, which is required.
-        </div>
-        <div>
-          The upload token route must exist at: <code>/api/posters/upload</code>.
-        </div>
-      </div>
     </div>
   );
 }

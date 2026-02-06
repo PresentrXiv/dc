@@ -1,18 +1,10 @@
-'use client';
+import ViewPosterClient from './ViewPosterClient';
 
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
-import dynamic from 'next/dynamic';
-
-const PosterViewer = dynamic(
-  () => import('@/app/components/PosterViewer'),
-  { ssr: false }
-);
-
-export default function ViewPosterPage() {
-  const params = useParams();
-  const posterId = params.id as string;
-
-  return <PosterViewer posterId={posterId} />;
+export default async function ViewPosterPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <ViewPosterClient posterId={id} />;
 }

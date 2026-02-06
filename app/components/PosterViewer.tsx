@@ -1,134 +1,199 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Document, Page, pdfjs } from 'react-pdf';
+
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+type Poster = {
+  id: string;
+  title?: string;
+  author?: string;
+  fileUrl?: string;   // Vercel Blob
+  filepath?: string;  // old local files
+};
 
 type Comment = {
   _id?: string;
   id?: string;
-  text: string;
+  posterId: string;
   page: number;
+  text: string;
   author: string;
   timestamp: Date;
 };
 
-type Poster = {
-    id: string;
-    title: string;
-    author: string;
-    // Old records have filepath, new records have fileUrl
-    filepath?: string;
-    fileUrl?: string;
-  };
-  
-
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const [poster, setPoster] = useState<Poster | null>(null);
-  const [numPages, setNumPages] = useState<number>(0);
-  const [pageNumber, setPageNumber] = useState<number>(1);
+
+  const [numPages, setNumPages] = useState(0);
+  const [pageNumber, setPageNumber] = useState(1);
+
   const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(true);
+
   const [showCommentModal, setShowCommentModal] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [newComment, setNewComment] = useState('');
+
+  const [error, setError] = useState('');
+
+  // Configure pdf.js worker (browser only)
+  useEffect(() => {
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  }, []);
 
   useEffect(() => {
     fetchPoster();
     fetchComments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posterId]);
 
   async function fetchPoster() {
     try {
-      const response = await fetch(`/api/posters/${posterId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setPoster(data);
+      setError('');
+      setPoster(null);
+
+      if (!posterId) {
+        setError('posterId is missing');
+        return;
       }
-    } catch (error) {
-      console.error('Error fetching poster:', error);
+
+      const res = await fetch(`/api/posters/${posterId}`);
+      if (!res.ok) {
+        setError(`Failed to load poster (${res.status})`);
+        return;
+      }
+
+      const data = await res.json();
+
+      // Defensive: if wrong endpoint was hit
+      if (Array.isArray(data)) {
+        setError('Expected single poster, got array');
+        return;
+      }
+
+      setPoster(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function fetchComments() {
     try {
-      const response = await fetch(`/api/comments?posterId=${posterId}`);
-      if (response.ok) {
-        const data = await response.json();
-        const commentsWithDates = data.map((c: any) => ({
-          ...c,
-          timestamp: new Date(c.timestamp),
-        }));
-        setComments(commentsWithDates);
-      }
-    } catch (error) {
-      console.error('Error fetching comments:', error);
+      setLoadingComments(true);
+      const res = await fetch(`/api/comments?posterId=${posterId}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const withDates: Comment[] = (data || []).map((c: any) => ({
+        ...c,
+        timestamp: new Date(c.timestamp),
+      }));
+      setComments(withDates);
+    } catch (err) {
+      console.error('Error fetching comments:', err);
     } finally {
-      setLoading(false);
+      setLoadingComments(false);
     }
   }
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
+    setPageNumber(1);
   }
 
   async function addComment() {
     if (!newComment.trim()) return;
-    
-    const comment = {
+
+    const payload = {
       posterId,
       page: pageNumber,
-      text: newComment,
+      text: newComment.trim(),
       author: 'Anonymous',
     };
 
     try {
-      const response = await fetch('/api/comments', {
+      const res = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(comment),
+        body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        const savedComment = await response.json();
-        setComments([
-          ...comments,
-          {
-            ...savedComment,
-            timestamp: new Date(savedComment.timestamp),
-          },
-        ]);
-        setNewComment('');
-        setShowCommentModal(false);
+      if (!res.ok) {
+        alert('Failed to save comment. Please try again.');
+        return;
       }
-    } catch (error) {
-      console.error('Error saving comment:', error);
+
+      const saved = await res.json();
+
+      setComments((prev) => [
+        ...prev,
+        { ...saved, timestamp: new Date(saved.timestamp) },
+      ]);
+
+      setNewComment('');
+      setShowCommentModal(false);
+    } catch (err) {
+      console.error('Error saving comment:', err);
       alert('Failed to save comment. Please try again.');
     }
   }
 
-  const pageComments = comments.filter(c => c.page === pageNumber);
+  const pdfUrl = useMemo(() => {
+    return poster?.fileUrl || poster?.filepath || '';
+  }, [poster]);
+
+  const pageComments = useMemo(
+    () => comments.filter((c) => c.page === pageNumber),
+    [comments, pageNumber]
+  );
 
   if (!poster) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading presentation...</p>
+      <div className="min-h-screen bg-gray-50 p-8">
+        <Link href="/" className="text-blue-600 hover:text-blue-700">
+          ← Back to All Presentations
+        </Link>
+
+        <div className="mt-6 bg-white p-6 rounded shadow">
+          <p>Loading presentation…</p>
+          {error && (
+            <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded">
+              {error}
+            </p>
+          )}
+          <div className="mt-2 text-xs text-gray-500">
+            Debug: posterId={posterId || '(empty)'}
+          </div>
+        </div>
       </div>
     );
   }
-  const pdfUrl = poster.fileUrl || poster.filepath;
 
   if (!pdfUrl) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">No PDF file specified.</p>
+      <div className="min-h-screen bg-gray-50 p-8">
+        <Link href="/" className="text-blue-600 hover:text-blue-700">
+          ← Back to All Presentations
+        </Link>
+
+        <div className="mt-6 bg-white p-6 rounded shadow">
+          <h1 className="text-xl font-bold">{poster.title || '(no title)'}</h1>
+          <p className="text-gray-600">by {poster.author || '(no author)'}</p>
+
+          <p className="mt-6 text-gray-500">No PDF file specified.</p>
+
+          <div className="mt-2 text-xs text-gray-500 break-all">
+            Debug keys: {Object.keys(poster).join(', ')}
+          </div>
+        </div>
       </div>
     );
   }
-  
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-4 md:p-8 max-w-5xl">
@@ -142,37 +207,39 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           <h1 className="text-2xl md:text-3xl font-bold">{poster.title}</h1>
           <p className="text-gray-600 mt-1">by {poster.author}</p>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow-lg p-4 mb-6">
           <div className="border rounded overflow-hidden bg-white mb-4">
-            <Document
-            file={pdfUrl}
-            onLoadSuccess={onDocumentLoadSuccess}
-          >
-          
-              <Page 
+            <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
+              <Page
                 pageNumber={pageNumber}
-                width={typeof window !== 'undefined' ? Math.min(900, window.innerWidth - 64) : 600}
+                width={
+                  typeof window !== 'undefined'
+                    ? Math.min(900, window.innerWidth - 64)
+                    : 600
+                }
                 renderTextLayer={false}
                 className="mx-auto"
               />
             </Document>
           </div>
-          
+
           <div className="flex gap-3 items-center justify-center flex-wrap mb-4">
-            <button 
+            <button
               disabled={pageNumber <= 1}
-              onClick={() => setPageNumber(pageNumber - 1)}
+              onClick={() => setPageNumber((p) => p - 1)}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               ← Previous
             </button>
+
             <span className="font-medium px-4">
               Slide {pageNumber} of {numPages}
             </span>
-            <button 
+
+            <button
               disabled={pageNumber >= numPages}
-              onClick={() => setPageNumber(pageNumber + 1)}
+              onClick={() => setPageNumber((p) => p + 1)}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               Next →
@@ -181,7 +248,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
           <div className="border-t pt-4 flex items-center justify-between flex-wrap gap-3">
             <div className="text-sm text-gray-600">
-              {loading ? (
+              {loadingComments ? (
                 <span>Loading comments...</span>
               ) : (
                 <>
@@ -192,6 +259,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </>
               )}
             </div>
+
             <button
               onClick={() => setShowCommentModal(true)}
               className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2"
@@ -200,12 +268,15 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </button>
           </div>
 
-          {!loading && pageComments.length > 0 && (
+          {!loadingComments && pageComments.length > 0 && (
             <div className="mt-6 space-y-3">
-              <h3 className="font-semibold text-lg">Comments on Slide {pageNumber}:</h3>
-              {pageComments.map(comment => (
-                <div 
-                  key={comment._id || comment.id} 
+              <h3 className="font-semibold text-lg">
+                Comments on Slide {pageNumber}:
+              </h3>
+
+              {pageComments.map((comment) => (
+                <div
+                  key={comment._id || comment.id}
                   className="p-4 bg-gray-50 border rounded-lg"
                 >
                   <div className="flex items-start justify-between mb-2 gap-2">
@@ -223,15 +294,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               ))}
             </div>
           )}
+
+          <div className="mt-4 text-xs text-gray-500 break-all">
+            Debug pdfUrl: {pdfUrl}
+          </div>
         </div>
       </div>
 
       {showCommentModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
           onClick={() => setShowCommentModal(false)}
         >
-          <div 
+          <div
             className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
@@ -260,9 +335,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                   rows={6}
                   autoFocus
                 />
-                <p className="text-xs text-gray-500 mt-2">
-                  💡 Text highlighting coming soon
-                </p>
               </div>
 
               <div className="flex gap-3 justify-end">
@@ -275,6 +347,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 >
                   Cancel
                 </button>
+
                 <button
                   onClick={addComment}
                   disabled={!newComment.trim()}
@@ -283,6 +356,10 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                   Post Comment
                 </button>
               </div>
+
+              <p className="text-xs text-gray-500 mt-3">
+                💡 Text highlighting coming soon
+              </p>
             </div>
           </div>
         </div>

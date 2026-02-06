@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/app/lib/mongodb';
 
-// GET /api/posters - List all posters
+const MARKER = 'NEW_JSON_ONLY_CODE_2026_02_06';
+
 export async function GET() {
   try {
     const client = await clientPromise;
@@ -16,19 +17,44 @@ export async function GET() {
     return NextResponse.json(posters);
   } catch (error) {
     console.error('Error fetching posters:', error);
-    return NextResponse.json({ error: 'Failed to fetch posters' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to fetch posters', marker: MARKER },
+      { status: 500 }
+    );
   }
 }
 
-// POST /api/posters - Save poster metadata (JSON only)
+// Expected JSON body: { title, author?, fileUrl }   OR   { title, author?, url }
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, author, fileUrl } = body ?? {};
+    const contentType = request.headers.get('content-type') || '';
 
-    if (!title || !fileUrl) {
+    // If anything is still sending FormData, stop clearly
+    if (contentType.includes('multipart/form-data')) {
       return NextResponse.json(
-        { error: 'title and fileUrl are required' },
+        {
+          error:
+            'This endpoint no longer accepts file uploads. Upload the PDF to Vercel Blob first, then POST JSON metadata (title/author/fileUrl).',
+          marker: MARKER,
+        },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json().catch(() => null);
+    const title = (body?.title ?? '').toString();
+    const author = (body?.author ?? '').toString();
+
+    // Accept either fileUrl or url, normalize to fileUrl
+    const fileUrl = (body?.fileUrl || body?.url || '').toString();
+
+    if (!title.trim() || !fileUrl.trim()) {
+      return NextResponse.json(
+        {
+          error: 'title and fileUrl (or url) are required',
+          marker: MARKER,
+          receivedKeys: body ? Object.keys(body) : null,
+        },
         { status: 400 }
       );
     }
@@ -40,17 +66,20 @@ export async function POST(request: NextRequest) {
 
     const poster = {
       id,
-      title,
-      author: author || 'Anonymous',
-      fileUrl,
+      title: title.trim(),
+      author: author.trim() || 'Anonymous',
+      fileUrl: fileUrl.trim(),
       uploadedAt: new Date(),
     };
 
     await db.collection('posters').insertOne(poster);
 
-    return NextResponse.json(poster, { status: 201 });
+    return NextResponse.json({ ...poster, marker: MARKER }, { status: 201 });
   } catch (error) {
     console.error('Error saving poster metadata:', error);
-    return NextResponse.json({ error: 'Failed to save poster' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to save poster metadata', marker: MARKER },
+      { status: 500 }
+    );
   }
 }
