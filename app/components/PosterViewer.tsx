@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { useSwipeable } from 'react-swipeable';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -28,6 +27,10 @@ type Comment = {
   timestamp: Date;
 };
 
+function getId(c: Comment) {
+  return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
+}
+
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const router = useRouter();
 
@@ -43,18 +46,24 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
 
-  // Comment modal (used for posting)
+  // Comment modal (posting)
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [newComment, setNewComment] = useState('');
 
-  // Phone orientation
+  // Orientation + responsive
   const [isLandscape, setIsLandscape] = useState(false);
+  const [isLargeScreen, setIsLargeScreen] = useState(false);
 
-  // NEW: landscape comments drawer (view + add entry point)
-  const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
+  // Small-screen overlays
+  const [showSlideDrawerMobile, setShowSlideDrawerMobile] = useState(false);
+  const [showCommentsDrawerMobile, setShowCommentsDrawerMobile] = useState(false);
 
-  // NEW: zoom state (used to disable swipe when zoomed)
+  // Zoom state for center viewer (large screen)
   const [isZoomed, setIsZoomed] = useState(false);
+
+  // Refs for small-screen scroll tracking
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Configure pdf.js worker
   useEffect(() => {
@@ -62,11 +71,12 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   }, []);
 
-  // Track orientation (updates on rotate / resize)
+  // Track orientation + breakpoint
   useEffect(() => {
     const update = () => {
       if (typeof window === 'undefined') return;
       setIsLandscape(window.matchMedia('(orientation: landscape)').matches);
+      setIsLargeScreen(window.matchMedia('(min-width: 1024px)').matches); // lg
     };
     update();
     window.addEventListener('resize', update);
@@ -177,34 +187,51 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     [comments, pageNumber]
   );
 
-  // Swipe: left = next, right = prev
-  // NEW: disable swipe when zoomed so pinch/pan feels natural
-  const swipeHandlers = useSwipeable({
-    onSwipedLeft: () => {
-      if (isZoomed) return;
-      setPageNumber((p) => (p < numPages ? p + 1 : p));
-    },
-    onSwipedRight: () => {
-      if (isZoomed) return;
-      setPageNumber((p) => (p > 1 ? p - 1 : p));
-    },
-    delta: 30,
-    trackTouch: true,
-    preventScrollOnSwipe: true,
-  });
+  // Widths
+  const centerPageWidth = useMemo(() => {
+    if (typeof window === 'undefined') return 700;
+    // Center column: give it room but don’t overflow
+    if (isLargeScreen) return Math.min(1100, Math.floor(window.innerWidth * 0.52));
+    // Small screen single-page width (used rarely here)
+    return Math.min(900, window.innerWidth - 24);
+  }, [isLargeScreen]);
 
-  // PDF width:
-  // - landscape: fill the phone width
-  // - portrait: keep a little padding
-  const pageWidth =
-    typeof window === 'undefined'
-      ? 600
-      : isLandscape
-        ? window.innerWidth
-        : Math.min(900, window.innerWidth - 32);
-  const ZOOM_EPS = 0.02; // tolerance so scale 1.0001 doesn't count as zoomed
+  const thumbWidth = 160;
+
+  const ZOOM_EPS = 0.02;
   const updateZoomed = (scale: number) => setIsZoomed(scale > 1 + ZOOM_EPS);
-        
+
+  // Small-screen: observe pages to keep “current page” in sync while scrolling
+  useEffect(() => {
+    if (isLargeScreen) return;
+    if (!numPages) return;
+
+    observerRef.current?.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        // Pick the most-visible intersecting entry
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))[0];
+
+        if (!visible) return;
+        const page = Number((visible.target as HTMLElement).dataset.page || '1');
+        if (page && page !== pageNumber) setPageNumber(page);
+      },
+      {
+        root: null,
+        threshold: [0.55, 0.7, 0.85],
+      }
+    );
+
+    for (let i = 1; i <= numPages; i++) {
+      const el = pageRefs.current[i];
+      if (el) observerRef.current.observe(el);
+    }
+
+    return () => observerRef.current?.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLargeScreen, numPages]);
 
   // Loading state
   if (!poster) {
@@ -220,225 +247,288 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     );
   }
 
-  // Main view
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* In landscape, remove max-width + padding so the PDF can truly fill the screen */}
-      <div className={isLandscape ? 'p-0' : 'mx-auto max-w-5xl p-4 md:p-8'}>
+  // Shared: slide drawer content
+  const SlideDrawer = ({ onPick }: { onPick?: () => void }) => (
+    <div className="h-full flex flex-col">
+      <div className="p-3 border-b bg-white">
+        <div className="text-sm font-semibold">Slides</div>
+        <div className="text-xs text-gray-500">Tap a slide to jump</div>
+      </div>
 
-        {/* Hide header & controls in landscape to maximize slide area */}
-        {!isLandscape && (
-          <div className="mb-4 flex items-center justify-between">
-            <Link href="/" className="text-blue-600">
-              ← Back to All Presentations
-            </Link>
-
+      <div className="flex-1 overflow-y-auto bg-gray-50 p-2 space-y-2">
+        {Array.from({ length: numPages }, (_, idx) => {
+          const n = idx + 1;
+          const active = n === pageNumber;
+          return (
             <button
-              onClick={handleDelete}
-              className="bg-red-600 text-white px-3 py-2 rounded font-semibold hover:bg-red-700"
+              key={n}
+              onClick={() => {
+                setPageNumber(n);
+                onPick?.();
+              }}
+              className={[
+                'w-full text-left rounded-lg border bg-white p-2 hover:bg-gray-50',
+                active ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+              ].join(' ')}
             >
-              Delete
+              <div className="flex items-center gap-2">
+                <div className="shrink-0">
+                  <Page
+                    pageNumber={n}
+                    width={thumbWidth}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    className="rounded"
+                  />
+                </div>
+                <div className="text-sm">
+                  <div className="font-semibold">Slide {n}</div>
+                  <div className="text-xs text-gray-500">
+                    {active ? 'Current' : ' '}
+                  </div>
+                </div>
+              </div>
             </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Shared: comments panel
+  const CommentsPanel = ({ compactHeader }: { compactHeader?: boolean }) => (
+    <div className="h-full flex flex-col bg-white">
+      <div className="p-3 border-b">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold">Comments</div>
+            <div className="text-xs text-gray-500">
+              Slide {pageNumber} of {numPages || '…'}
+            </div>
           </div>
-        )}
 
-        {!isLandscape && (
-          <div className="bg-white rounded-lg shadow p-4 mb-4">
-            <h1 className="text-2xl font-bold">{poster.title}</h1>
-            <p className="text-gray-600">by {poster.author}</p>
-          </div>
-        )}
-
-        {/* PDF container */}
-        <div
-          {...swipeHandlers}
-          className={
-            isLandscape
-              ? 'touch-pan-y'
-              : 'bg-white rounded shadow p-4 mb-4 touch-pan-y'
-          }
-          // NOTE: keep vertical page scroll allowed; zoom wrapper handles pinch + pan
-          style={{ touchAction: 'pan-y' }}
-        >
-          <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
-            {/* NEW: pinch zoom + pan wrapper */}
-            <TransformWrapper
-              minScale={1}
-              maxScale={3}
-              wheel={{ disabled: true }}
-              doubleClick={{ mode: 'reset' }}
-              pinch={{ step: 5 }}
-              panning={{ velocityDisabled: true }}
-              onZoomStop={({ state }) => setIsZoomed(state.scale > 1.01)}
-              onPanningStop={({ state }) => setIsZoomed(state.scale > 1.01)}
-              onPinchingStop={({ state }) => setIsZoomed(state.scale > 1.01)}
-            >
-
-
-              <TransformComponent
-                wrapperStyle={{ width: '100%' }}
-                contentStyle={{ width: '100%' }}
-              >
-                <Page
-                  pageNumber={pageNumber}
-                  width={pageWidth}
-                  renderTextLayer={false}
-                  className="mx-auto"
-                />
-              </TransformComponent>
-            </TransformWrapper>
-          </Document>
+          <button
+            onClick={() => setShowCommentModal(true)}
+            className="bg-green-600 text-white px-3 py-2 rounded text-sm"
+          >
+            Add
+          </button>
         </div>
 
-        {/* Controls: only show in portrait */}
-        {!isLandscape && (
-          <>
-            {/* Desktop buttons */}
-            <div className="hidden sm:flex items-center justify-center gap-4 mb-4">
-              <button
-                disabled={pageNumber <= 1}
-                onClick={() => setPageNumber((p) => p - 1)}
-                className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-300"
-              >
-                ← Previous
-              </button>
-
-              <span>
-                Slide {pageNumber} of {numPages}
-              </span>
-
-              <button
-                disabled={pageNumber >= numPages}
-                onClick={() => setPageNumber((p) => p + 1)}
-                className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-300"
-              >
-                Next →
-              </button>
-            </div>
-
-            {/* Mobile hint */}
-            <p className="sm:hidden text-center text-xs text-gray-500 mb-4">
-              Swipe left/right to change slides. Pinch to zoom.
-            </p>
-
-            {/* Comments summary + add */}
-            <div className="border-t pt-4 flex justify-between items-center">
-              <span className="text-sm text-gray-600">
-                {loadingComments
-                  ? 'Loading comments...'
-                  : `${pageComments.length} comment${pageComments.length !== 1 ? 's' : ''} on this slide`}
-              </span>
-
-              <button
-                onClick={() => setShowCommentModal(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded"
-              >
-                Add Comment
-              </button>
-            </div>
-
-            {/* Comments list */}
-            {!loadingComments && pageComments.length > 0 && (
-              <div className="mt-4 space-y-3">
-                {pageComments.map((c) => (
-                  <div key={c._id || c.id} className="border rounded p-3 bg-gray-50">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="font-semibold">{c.author}</span>
-                      <span className="text-gray-500">
-                        {c.timestamp.toLocaleString()}
-                      </span>
-                    </div>
-                    <p className="whitespace-pre-wrap">{c.text}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+        {!compactHeader && (
+          <div className="mt-2 text-xs text-gray-500">
+            {loadingComments
+              ? 'Loading comments…'
+              : `${pageComments.length} comment${pageComments.length !== 1 ? 's' : ''} on this slide`}
+          </div>
         )}
       </div>
 
-      {/* NEW: Landscape comments access (floating button + drawer) */}
-      {isLandscape && (
-        <>
+      <div className="flex-1 overflow-y-auto p-3 bg-gray-50">
+        {loadingComments ? (
+          <p className="text-sm text-gray-600">Loading comments…</p>
+        ) : pageComments.length === 0 ? (
+          <p className="text-sm text-gray-600">No comments yet on this slide.</p>
+        ) : (
+          <div className="space-y-3">
+            {pageComments.map((c) => (
+              <div key={getId(c)} className="border rounded p-3 bg-white">
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="font-semibold">{c.author}</span>
+                  <span className="text-gray-500">
+                    {c.timestamp.toLocaleString()}
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap text-sm">{c.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Top bar (always visible) */}
+      <div className="sticky top-0 z-40 bg-white border-b">
+        <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
+          <Link href="/" className="text-blue-600 text-sm">
+            ← Back
+          </Link>
+
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{poster.title || 'Untitled'}</div>
+            <div className="truncate text-xs text-gray-500">{poster.author ? `by ${poster.author}` : ''}</div>
+          </div>
+
           <button
-            onClick={() => setShowCommentsDrawer(true)}
-            className="fixed bottom-4 right-4 z-50 bg-green-600 text-white px-4 py-3 rounded-full shadow-lg active:scale-95"
+            onClick={handleDelete}
+            className="bg-red-600 text-white px-3 py-2 rounded text-sm"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {/* PDF Document wrapper once (so thumbs + pages share the same loaded file) */}
+      <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
+        {/* LARGE SCREEN: 3-column layout */}
+        <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
+          {/* Left: slide drawer */}
+          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+            <SlideDrawer />
+          </div>
+
+          {/* Center: single selected slide (pinch zoom + pan) */}
+          <div className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden">
+            <div className="h-full overflow-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
+              <div className="p-3 border-b flex items-center justify-between">
+                <div className="text-sm">
+                  Slide <span className="font-semibold">{pageNumber}</span> of{' '}
+                  <span className="font-semibold">{numPages || '…'}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={pageNumber <= 1}
+                    onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    disabled={pageNumber >= numPages}
+                    onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3" style={{ touchAction: 'pan-y pinch-zoom' }}>
+                <TransformWrapper
+                  minScale={1}
+                  maxScale={3}
+                  initialScale={1}
+                  wheel={{ disabled: true }}
+                  doubleClick={{ mode: 'reset' }}
+                  pinch={{ step: 5 }}
+                  // don’t consume 1-finger gestures unless zoomed
+                  panning={{ disabled: !isZoomed, velocityDisabled: true }}
+                  onZoomStart={() => setIsZoomed(true)}
+                  onZoomStop={({ state }) => updateZoomed(state.scale)}
+                  onPanningStop={({ state }) => updateZoomed(state.scale)}
+                  onPinchingStop={({ state }) => updateZoomed(state.scale)}
+                >
+                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+                    <Page
+                      pageNumber={pageNumber}
+                      width={centerPageWidth}
+                      renderTextLayer={false}
+                      className="mx-auto"
+                    />
+                  </TransformComponent>
+                </TransformWrapper>
+
+                <div className="mt-2 text-xs text-gray-500">
+                  Tip: pinch to zoom, drag to pan (when zoomed), double-tap to reset.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: comments */}
+          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden">
+            <CommentsPanel />
+          </div>
+        </div>
+
+        {/* SMALL SCREEN: vertical scroll of all pages */}
+        <div className="lg:hidden">
+          {/* floating buttons */}
+          <button
+            onClick={() => setShowSlideDrawerMobile(true)}
+            className="fixed left-3 bottom-4 z-50 bg-white border shadow px-4 py-3 rounded-full text-sm"
+          >
+            ☰ Slides
+          </button>
+          <button
+            onClick={() => setShowCommentsDrawerMobile(true)}
+            className="fixed right-3 bottom-4 z-50 bg-green-600 text-white shadow px-4 py-3 rounded-full text-sm"
           >
             💬 Comments
           </button>
 
-          {showCommentsDrawer && (
-            <div
-              className="fixed inset-0 z-50"
-              onClick={() => setShowCommentsDrawer(false)}
-            >
-              {/* backdrop */}
-              <div className="absolute inset-0 bg-black/40" />
+          <div className="px-2 py-3">
+            <div className="text-center text-xs text-gray-500 mb-2">
+              Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
+              {isLandscape ? ' (landscape)' : ''}
+            </div>
 
-              {/* bottom sheet */}
+            <div className="space-y-4">
+              {Array.from({ length: numPages }, (_, idx) => {
+                const n = idx + 1;
+                return (
+                  <div
+                    key={n}
+                    ref={(el) => { pageRefs.current[n] = el; }}
+                    data-page={n}
+                    className={[
+                      'bg-white rounded-lg border overflow-hidden',
+                      n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+                    ].join(' ')}
+                  >
+                    <div className="px-3 py-2 border-b text-sm font-semibold">
+                      Slide {n}
+                    </div>
+
+                    {/* NOTE: keeping this simple/reliable: native scroll + no swipe conflicts.
+                       If you later want pinch zoom per page, we can add a “tap to focus/zoom” mode. */}
+                    <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                      <Page
+                        pageNumber={n}
+                        width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                        renderTextLayer={false}
+                        className="mx-auto"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mobile slide drawer overlay */}
+          {showSlideDrawerMobile && (
+            <div className="fixed inset-0 z-50" onClick={() => setShowSlideDrawerMobile(false)}>
+              <div className="absolute inset-0 bg-black/40" />
               <div
-                className="absolute left-0 right-0 bottom-0 bg-white rounded-t-2xl shadow-xl max-h-[70vh] overflow-hidden"
+                className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="p-4 border-b flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">Slide {pageNumber} Comments</div>
-                    <div className="text-xs text-gray-500">
-                      {loadingComments
-                        ? 'Loading...'
-                        : `${pageComments.length} comment${pageComments.length !== 1 ? 's' : ''}`}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => setShowCommentsDrawer(false)}
-                    className="px-3 py-2 rounded border"
-                  >
-                    Close
-                  </button>
-                </div>
-
-                <div className="p-4 flex items-center justify-between gap-3 border-b">
-                  <button
-                    onClick={() => setShowCommentModal(true)}
-                    className="bg-green-600 text-white px-4 py-2 rounded"
-                  >
-                    Add Comment
-                  </button>
-
-                  <div className="text-xs text-gray-500">
-                    Pinch to zoom. Swipe to change slides.
-                  </div>
-                </div>
-
-                <div className="p-4 overflow-y-auto max-h-[50vh]">
-                  {loadingComments ? (
-                    <p className="text-sm text-gray-600">Loading comments…</p>
-                  ) : pageComments.length === 0 ? (
-                    <p className="text-sm text-gray-600">No comments yet on this slide.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {pageComments.map((c) => (
-                        <div key={c._id || c.id} className="border rounded p-3 bg-gray-50">
-                          <div className="flex justify-between text-sm mb-1">
-                            <span className="font-semibold">{c.author}</span>
-                            <span className="text-gray-500">
-                              {c.timestamp.toLocaleString()}
-                            </span>
-                          </div>
-                          <p className="whitespace-pre-wrap">{c.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />
               </div>
             </div>
           )}
-        </>
-      )}
 
-      {/* Comment modal: NOW available in BOTH portrait and landscape */}
+          {/* Mobile comments drawer overlay */}
+          {showCommentsDrawerMobile && (
+            <div className="fixed inset-0 z-50" onClick={() => setShowCommentsDrawerMobile(false)}>
+              <div className="absolute inset-0 bg-black/40" />
+              <div
+                className="absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <CommentsPanel compactHeader />
+              </div>
+            </div>
+          )}
+        </div>
+      </Document>
+
+      {/* Comment modal: works everywhere */}
       {showCommentModal && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
@@ -482,7 +572,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </div>
 
             <p className="text-xs text-gray-500 mt-3">
-              Tip: double-tap to reset zoom.
+              Tip: on desktop, comments are always visible on the right.
             </p>
           </div>
         </div>
