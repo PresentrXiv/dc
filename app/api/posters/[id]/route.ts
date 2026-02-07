@@ -13,14 +13,16 @@ export async function DELETE(
     const client = await clientPromise;
     const db = client.db("dc");
 
-    // Soft-delete
     const result = await db.collection("posters").updateOne(
-      { id },
+      { id, deletedAt: { $exists: false } },
       { $set: { deletedAt: new Date() } }
     );
 
     if (result.matchedCount === 0) {
-      return NextResponse.json({ error: "Poster not found", marker: MARKER }, { status: 404 });
+      return NextResponse.json(
+        { error: "Poster not found (or already deleted)", marker: MARKER },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({ ok: true, marker: MARKER });
@@ -43,7 +45,10 @@ export async function GET(
     const client = await clientPromise;
     const db = client.db("dc");
 
-    const poster = await db.collection("posters").findOne({ id });
+    const poster = await db.collection("posters").findOne({
+      id,
+      deletedAt: { $exists: false },
+    });
 
     if (!poster) {
       return NextResponse.json({ error: "Poster not found", marker: MARKER }, { status: 404 });
