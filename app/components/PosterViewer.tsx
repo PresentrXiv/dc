@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 // Swipe handling (left/right on mobile)
-import {ximport { useSwipeable } from 'react-swipeable';
+import { useSwipeable } from 'react-swipeable';
 
 // PDF layer CSS (required by react-pdf; we disable text layer rendering but keep CSS imported)
 import 'react-pdf/dist/Page/AnnotationLayer.css';
