@@ -202,6 +202,9 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       : isLandscape
         ? window.innerWidth
         : Math.min(900, window.innerWidth - 32);
+  const ZOOM_EPS = 0.02; // tolerance so scale 1.0001 doesn't count as zoomed
+  const updateZoomed = (scale: number) => setIsZoomed(scale > 1 + ZOOM_EPS);
+        
 
   // Loading state
   if (!poster) {
@@ -262,7 +265,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             <TransformWrapper
               minScale={1}
               maxScale={3}
-              // smooth UX for touch devices
               wheel={{ disabled: true }}
               doubleClick={{ mode: 'reset' }}
               pinch={{ step: 5 }}
@@ -271,6 +273,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               onPanningStop={({ state }) => setIsZoomed(state.scale > 1.01)}
               onPinchingStop={({ state }) => setIsZoomed(state.scale > 1.01)}
             >
+
+
               <TransformComponent
                 wrapperStyle={{ width: '100%' }}
                 contentStyle={{ width: '100%' }}
