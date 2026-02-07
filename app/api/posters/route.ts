@@ -98,22 +98,24 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
 } catch (error: any) {
-    console.error("Error saving poster metadata:", error);
+    console.error("POST /api/posters failed:", error);
   
     return NextResponse.json(
       {
         error: "Failed to save poster metadata",
         marker: MARKER,
-        DEBUG_POSTERS_ROUTE_VERSION: "POSTERS_CATCH_V2_2026_02_06_2200",
+        DEBUG_POSTERS_ROUTE_VERSION: "POSTERS_CATCH_V3_2026_02_06_2235",
         details: {
           name: error?.name,
           message: error?.message,
           code: error?.code,
           codeName: error?.codeName,
+          raw: String(error),
         },
       },
       { status: 500 }
     );
   }
+  
   
 }
