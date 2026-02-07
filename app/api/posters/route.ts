@@ -10,7 +10,7 @@ export async function GET() {
 
     const posters = await db
       .collection("posters")
-      .find({})
+      .find({ deletedAt: { $exists: false } })
       .sort({ uploadedAt: -1 })
       .toArray();
 
