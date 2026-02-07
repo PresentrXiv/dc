@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -26,6 +27,8 @@ type Comment = {
 };
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
+  const router = useRouter();
+
   const [poster, setPoster] = useState<Poster | null>(null);
 
   const [numPages, setNumPages] = useState(0);
@@ -38,6 +41,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [newComment, setNewComment] = useState('');
 
   const [error, setError] = useState('');
+
+  const [deleting, setDeleting] = useState(false);
 
   // Configure pdf.js worker (browser only)
   useEffect(() => {
@@ -142,6 +147,31 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     }
   }
 
+  async function deletePoster() {
+    if (!posterId) return;
+    if (!confirm('Delete this presentation?')) return;
+
+    try {
+      setDeleting(true);
+
+      const res = await fetch(`/api/posters/${posterId}`, { method: 'DELETE' });
+      const j = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(j?.error ?? 'Delete failed');
+        return;
+      }
+
+      router.push('/');
+      router.refresh();
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const pdfUrl = useMemo(() => {
     return poster?.fileUrl || poster?.filepath || '';
   }, [poster]);
@@ -154,9 +184,20 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   if (!poster) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
-        <Link href="/" className="text-blue-600 hover:text-blue-700">
-          ← Back to All Presentations
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link href="/" className="text-blue-600 hover:text-blue-700">
+            ← Back to All Presentations
+          </Link>
+
+          <button
+            onClick={deletePoster}
+            disabled
+            className="px-3 py-2 rounded bg-red-600 text-white font-semibold opacity-50 cursor-not-allowed"
+            title="Load the poster first"
+          >
+            Delete
+          </button>
+        </div>
 
         <div className="mt-6 bg-white p-6 rounded shadow">
           <p>Loading presentation…</p>
@@ -176,9 +217,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   if (!pdfUrl) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
-        <Link href="/" className="text-blue-600 hover:text-blue-700">
-          ← Back to All Presentations
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link href="/" className="text-blue-600 hover:text-blue-700">
+            ← Back to All Presentations
+          </Link>
+
+          <button
+            onClick={deletePoster}
+            disabled={deleting}
+            className="px-3 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
 
         <div className="mt-6 bg-white p-6 rounded shadow">
           <h1 className="text-xl font-bold">{poster.title || '(no title)'}</h1>
@@ -197,10 +248,18 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-4 md:p-8 max-w-5xl">
-        <div className="mb-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
           <Link href="/" className="text-blue-600 hover:text-blue-700">
             ← Back to All Presentations
           </Link>
+
+          <button
+            onClick={deletePoster}
+            disabled={deleting}
+            className="px-3 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
         </div>
 
         <div className="bg-white rounded-lg shadow-lg p-4 mb-2">
