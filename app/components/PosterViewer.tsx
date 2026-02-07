@@ -48,11 +48,11 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Which slide the user is commenting on (important for mobile)
   const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
 
-// Small popup menu on a tapped slide (mobile only)
+  // Small popup menu on a tapped slide (mobile only)
   const [mobileSlideMenu, setMobileSlideMenu] = useState<{
-  open: boolean;
-  page: number;
-} | null>(null);
+    open: boolean;
+    page: number;
+  } | null>(null);
 
 
   // Comment modal (posting)
@@ -317,11 +317,15 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           </div>
 
           <button
-            onClick={() => setShowCommentModal(true)}
+            onClick={() => {
+              setCommentTargetPage(pageNumber);   // pin the slide
+              setShowCommentModal(true);          // then open the box
+            }}
             className="bg-green-600 text-white px-3 py-2 rounded text-sm"
           >
             Add
           </button>
+
         </div>
 
         {!compactHeader && (
@@ -381,221 +385,226 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       </div>
 
       {/* PDF Document wrapper once (so thumbs + pages share the same loaded file) */}
-      <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
-        {/* LARGE SCREEN: 3-column layout */}
-        <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
-          {/* Left: slide drawer */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
-            <SlideDrawer />
-          </div>
+      {/* LARGE SCREEN: 3-column layout */}
+      <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
+        {/* Left: slide drawer */}
+        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+          <SlideDrawer />
+        </div>
 
-          {/* Center: single selected slide (pinch zoom + pan) */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden">
-            <div className="h-full overflow-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
-              <div className="p-3 border-b flex items-center justify-between">
-                <div className="text-sm">
-                  Slide <span className="font-semibold">{pageNumber}</span> of{' '}
-                  <span className="font-semibold">{numPages || '…'}</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={pageNumber <= 1}
-                    onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-                  >
-                    Prev
-                  </button>
-                  <button
-                    disabled={pageNumber >= numPages}
-                    onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
-                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-                  >
-                    Next
-                  </button>
-                </div>
+        {/* Center: single selected slide (pinch zoom + pan) */}
+        <div className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden">
+          <div className="h-full overflow-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
+            <div className="p-3 border-b flex items-center justify-between">
+              <div className="text-sm">
+                Slide <span className="font-semibold">{pageNumber}</span> of{' '}
+                <span className="font-semibold">{numPages || '…'}</span>
               </div>
 
-              <div className="p-3" style={{ touchAction: 'pan-y pinch-zoom' }}>
-                <TransformWrapper
-                  minScale={1}
-                  maxScale={3}
-                  initialScale={1}
-                  wheel={{ disabled: true }}
-                  doubleClick={{ mode: 'reset' }}
-                  pinch={{ step: 5 }}
-                  // don’t consume 1-finger gestures unless zoomed
-                  panning={{ disabled: !isZoomed, velocityDisabled: true }}
-                  onZoomStart={() => setIsZoomed(true)}
-                  onZoomStop={({ state }) => updateZoomed(state.scale)}
-                  onPanningStop={({ state }) => updateZoomed(state.scale)}
-                  onPinchingStop={({ state }) => updateZoomed(state.scale)}
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={pageNumber <= 1}
+                  onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                  className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
                 >
-                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+                  Prev
+                </button>
+                <button
+                  disabled={pageNumber >= numPages}
+                  onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                  className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3" style={{ touchAction: 'pan-y pinch-zoom' }}>
+              <TransformWrapper
+                minScale={1}
+                maxScale={3}
+                initialScale={1}
+                wheel={{ disabled: true }}
+                doubleClick={{ mode: 'reset' }}
+                pinch={{ step: 5 }}
+                // don’t consume 1-finger gestures unless zoomed
+                panning={{ disabled: !isZoomed, velocityDisabled: true }}
+                onZoomStart={() => setIsZoomed(true)}
+                onZoomStop={({ state }) => updateZoomed(state.scale)}
+                onPanningStop={({ state }) => updateZoomed(state.scale)}
+                onPinchingStop={({ state }) => updateZoomed(state.scale)}
+              >
+                <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+                  <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
                     <Page
                       pageNumber={pageNumber}
                       width={centerPageWidth}
                       renderTextLayer={false}
                       className="mx-auto"
                     />
-                  </TransformComponent>
-                </TransformWrapper>
+                  </Document>
+                </TransformComponent>
 
-                <div className="mt-2 text-xs text-gray-500">
-                  Tip: pinch to zoom, drag to pan (when zoomed), double-tap to reset.
-                </div>
+              </TransformWrapper>
+
+              <div className="mt-2 text-xs text-gray-500">
+                Tip: pinch to zoom, drag to pan (when zoomed), double-tap to reset.
               </div>
             </div>
           </div>
-
-          {/* Right: comments */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden">
-            <CommentsPanel />
-          </div>
         </div>
 
-        {/* SMALL SCREEN: vertical scroll of all pages */}
-        <div className="lg:hidden">
-          {/* floating buttons */}
-          <button
-            onClick={() => setShowSlideDrawerMobile(true)}
-            className="fixed left-3 bottom-4 z-50 bg-white border shadow px-4 py-3 rounded-full text-sm"
-          >
-            ☰ Slides
-          </button>
-          
-          <div className="px-2 py-3">
-            <div className="text-center text-xs text-gray-500 mb-2">
-              Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
-              {isLandscape ? ' (landscape)' : ''}
-            </div>
+        {/* Right: comments */}
+        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden">
+          <CommentsPanel />
+        </div>
+      </div>
 
-            <div className="space-y-4">
-              {Array.from({ length: numPages }, (_, idx) => {
-                const n = idx + 1;
-                return (
-                  <div
-                    key={n}
-                    ref={(el) => { pageRefs.current[n] = el; }}
-                    data-page={n}
-                    className={[
-                      'bg-white rounded-lg border overflow-hidden',
-                      n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-                    ].join(' ')}
-                  >
-                    <div className="px-3 py-2 border-b text-sm font-semibold">
-                      Slide {n}
-                    </div>
+      {/* SMALL SCREEN: vertical scroll of all pages */}
+      <div className="lg:hidden">
+        {/* floating buttons */}
+        <button
+          onClick={() => setShowSlideDrawerMobile(true)}
+          className="fixed left-3 bottom-4 z-50 bg-white border shadow px-4 py-3 rounded-full text-sm"
+        >
+          ☰ Slides
+        </button>
 
-                    {/* NOTE: keeping this simple/reliable: native scroll + no swipe conflicts.
+        <div className="px-2 py-3">
+          <div className="text-center text-xs text-gray-500 mb-2">
+            Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
+            {isLandscape ? ' (landscape)' : ''}
+          </div>
+
+          <div className="space-y-4">
+            {Array.from({ length: numPages }, (_, idx) => {
+              const n = idx + 1;
+              return (
+                <div
+                  key={n}
+                  ref={(el) => { pageRefs.current[n] = el; }}
+                  data-page={n}
+                  className={[
+                    'bg-white rounded-lg border overflow-hidden',
+                    n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+                  ].join(' ')}
+                >
+                  <div className="px-3 py-2 border-b text-sm font-semibold">
+                    Slide {n}
+                  </div>
+
+                  {/* NOTE: keeping this simple/reliable: native scroll + no swipe conflicts.
                        If you later want pinch zoom per page, we can add a “tap to focus/zoom” mode. */}
-                    <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                  <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                    <Document file={pdfUrl}>
                       <Page
                         pageNumber={n}
                         width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
                         renderTextLayer={false}
                         className="mx-auto"
                       />
-                    </div>
+                    </Document>
                   </div>
-                );
-              })}
+
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Mobile slide drawer overlay */}
+        {showSlideDrawerMobile && (
+          <div className="fixed inset-0 z-50" onClick={() => setShowSlideDrawerMobile(false)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div
+              className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />
             </div>
           </div>
+        )}
 
-          {/* Mobile slide drawer overlay */}
-          {showSlideDrawerMobile && (
-            <div className="fixed inset-0 z-50" onClick={() => setShowSlideDrawerMobile(false)}>
-              <div className="absolute inset-0 bg-black/40" />
-              <div
-                className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />
-              </div>
+        {/* Mobile comments drawer overlay */}
+        {showCommentsDrawerMobile && (
+          <div className="fixed inset-0 z-50" onClick={() => setShowCommentsDrawerMobile(false)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div
+              className="absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <CommentsPanel compactHeader />
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {/* Mobile comments drawer overlay */}
-          {showCommentsDrawerMobile && (
-            <div className="fixed inset-0 z-50" onClick={() => setShowCommentsDrawerMobile(false)}>
-              <div className="absolute inset-0 bg-black/40" />
-              <div
-                className="absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] bg-white shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <CommentsPanel compactHeader />
-              </div>
-            </div>
-          )}
-        </div>
-      </Document>
 
       {/* Comment modal: works everywhere */}
       {showCommentModal && (
-       <div className="space-y-4">
-       {Array.from({ length: numPages }, (_, idx) => {
-         const n = idx + 1;
-         return (
-           <div
-             key={n}
-             ref={(el) => { pageRefs.current[n] = el; }}
-             data-page={n}
-             onClick={() => {
-               setCommentTargetPage(n); // <-- IMPORTANT: remember which slide was tapped
-               setMobileSlideMenu({ open: true, page: n }); // <-- show menu for this slide
-             }}
-             className={[
-               'bg-white rounded-lg border overflow-hidden',
-               n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-             ].join(' ')}
-           >
-             <div className="px-3 py-2 border-b text-sm font-semibold">
-               Slide {n}
-             </div>
-     
-             <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-               <Page
-                 pageNumber={n}
-                 width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                 renderTextLayer={false}
-                 className="mx-auto"
-               />
-             </div>
-     
-             {/* NEW: menu appears after user taps this slide */}
-             {mobileSlideMenu?.open && mobileSlideMenu.page === n && (
-               <div className="p-3">
-                 <div className="inline-flex gap-2 bg-white border shadow rounded-full px-2 py-1">
-                   <button
-                     className="text-sm px-3 py-2 rounded-full bg-gray-100"
-                     onClick={(e) => {
-                       e.stopPropagation();
-                       setShowCommentsDrawerMobile(true);
-                       setMobileSlideMenu(null);
-                     }}
-                   >
-                     View comments
-                   </button>
-     
-                   <button
-                     className="text-sm px-3 py-2 rounded-full bg-green-600 text-white"
-                     onClick={(e) => {
-                       e.stopPropagation();
-                       setShowCommentModal(true);
-                       setMobileSlideMenu(null);
-                     }}
-                   >
-                     Add comment
-                   </button>
-                 </div>
-               </div>
-             )}
-           </div>
-         );
-       })}
-     </div>
-     
+        <div className="space-y-4">
+          {Array.from({ length: numPages }, (_, idx) => {
+            const n = idx + 1;
+            return (
+              <div
+                key={n}
+                ref={(el) => { pageRefs.current[n] = el; }}
+                data-page={n}
+                onClick={() => {
+                  setCommentTargetPage(n); // <-- IMPORTANT: remember which slide was tapped
+                  setMobileSlideMenu({ open: true, page: n }); // <-- show menu for this slide
+                }}
+                className={[
+                  'bg-white rounded-lg border overflow-hidden',
+                  n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+                ].join(' ')}
+              >
+                <div className="px-3 py-2 border-b text-sm font-semibold">
+                  Slide {n}
+                </div>
+
+                <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                  <Page
+                    pageNumber={n}
+                    width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                    renderTextLayer={false}
+                    className="mx-auto"
+                  />
+                </div>
+
+                {/* NEW: menu appears after user taps this slide */}
+                {mobileSlideMenu?.open && mobileSlideMenu.page === n && (
+                  <div className="p-3">
+                    <div className="inline-flex gap-2 bg-white border shadow rounded-full px-2 py-1">
+                      <button
+                        className="text-sm px-3 py-2 rounded-full bg-gray-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowCommentsDrawerMobile(true);
+                          setMobileSlideMenu(null);
+                        }}
+                      >
+                        View comments
+                      </button>
+
+                      <button
+                        className="text-sm px-3 py-2 rounded-full bg-green-600 text-white"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowCommentModal(true);
+                          setMobileSlideMenu(null);
+                        }}
+                      >
+                        Add comment
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
       )}
     </div>
   );
