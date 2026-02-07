@@ -60,6 +60,7 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl md:text-4xl font-bold"> 
         Conference Presentations ✅ DELETE-UI-CANARY</h1>
+        <p className="text-xs font-bold text-purple-700">DELETE_UI_CANARY</p>
 
           <Link
             href="/upload"
