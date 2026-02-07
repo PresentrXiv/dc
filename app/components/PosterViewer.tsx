@@ -45,6 +45,15 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Comments state
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
+  // Which slide the user is commenting on (important for mobile)
+  const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
+
+// Small popup menu on a tapped slide (mobile only)
+  const [mobileSlideMenu, setMobileSlideMenu] = useState<{
+  open: boolean;
+  page: number;
+} | null>(null);
+
 
   // Comment modal (posting)
   const [showCommentModal, setShowCommentModal] = useState(false);
@@ -156,7 +165,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         posterId,
-        page: pageNumber,
+        page: commentTargetPage,
         text: newComment.trim(),
         author: 'Anonymous',
       }),
@@ -454,13 +463,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           >
             ☰ Slides
           </button>
-          <button
-            onClick={() => setShowCommentsDrawerMobile(true)}
-            className="fixed right-3 bottom-4 z-50 bg-green-600 text-white shadow px-4 py-3 rounded-full text-sm"
-          >
-            💬 Comments
-          </button>
-
+          
           <div className="px-2 py-3">
             <div className="text-center text-xs text-gray-500 mb-2">
               Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
@@ -530,52 +533,69 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
       {/* Comment modal: works everywhere */}
       {showCommentModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={() => setShowCommentModal(false)}
-        >
-          <div
-            className="bg-white rounded p-6 max-w-lg w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-3">
-              Add Comment (Slide {pageNumber})
-            </h2>
-
-            <textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              rows={5}
-              className="w-full border rounded p-2 mb-3"
-              placeholder="Your comment…"
-              autoFocus
-            />
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowCommentModal(false);
-                  setNewComment('');
-                }}
-                className="px-4 py-2 border rounded"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={addComment}
-                disabled={!newComment.trim()}
-                className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300"
-              >
-                Post
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-3">
-              Tip: on desktop, comments are always visible on the right.
-            </p>
-          </div>
-        </div>
+       <div className="space-y-4">
+       {Array.from({ length: numPages }, (_, idx) => {
+         const n = idx + 1;
+         return (
+           <div
+             key={n}
+             ref={(el) => { pageRefs.current[n] = el; }}
+             data-page={n}
+             onClick={() => {
+               setCommentTargetPage(n); // <-- IMPORTANT: remember which slide was tapped
+               setMobileSlideMenu({ open: true, page: n }); // <-- show menu for this slide
+             }}
+             className={[
+               'bg-white rounded-lg border overflow-hidden',
+               n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+             ].join(' ')}
+           >
+             <div className="px-3 py-2 border-b text-sm font-semibold">
+               Slide {n}
+             </div>
+     
+             <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+               <Page
+                 pageNumber={n}
+                 width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                 renderTextLayer={false}
+                 className="mx-auto"
+               />
+             </div>
+     
+             {/* NEW: menu appears after user taps this slide */}
+             {mobileSlideMenu?.open && mobileSlideMenu.page === n && (
+               <div className="p-3">
+                 <div className="inline-flex gap-2 bg-white border shadow rounded-full px-2 py-1">
+                   <button
+                     className="text-sm px-3 py-2 rounded-full bg-gray-100"
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       setShowCommentsDrawerMobile(true);
+                       setMobileSlideMenu(null);
+                     }}
+                   >
+                     View comments
+                   </button>
+     
+                   <button
+                     className="text-sm px-3 py-2 rounded-full bg-green-600 text-white"
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       setShowCommentModal(true);
+                       setMobileSlideMenu(null);
+                     }}
+                   >
+                     Add comment
+                   </button>
+                 </div>
+               </div>
+             )}
+           </div>
+         );
+       })}
+     </div>
+     
       )}
     </div>
   );
