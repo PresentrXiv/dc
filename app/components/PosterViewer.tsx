@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-
+import { FixedSizeList as List, ListOnScrollProps } from 'react-window';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
@@ -302,53 +302,83 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     );
   }
 
-  // Shared: slide drawer content (FAST LIST — no PDF thumbnails)
-  const SlideDrawer = ({ onPick }: { onPick?: () => void }) => (
-    <div className="h-full flex flex-col">
-      {/* Drawer header */}
+// LEFT NAV (DESKTOP): thumbnail-sized mini PDF pages for navigation
+const MiniPdfNav = () => {
+  const listRef = useRef<List>(null);
+
+  // Thumbnail sizing (laptop)
+  const THUMB_W = 220;     // width of the mini page
+  const ROW_H = 170;       // row height (must be >= thumb height + label)
+
+  // Keep left nav centered around the currently selected slide
+  useEffect(() => {
+    if (!isLargeScreen) return;
+    if (!numPages) return;
+    listRef.current?.scrollToItem(pageNumber - 1, 'center');
+  }, [pageNumber, isLargeScreen, numPages]);
+
+  return (
+    <div className="h-full flex flex-col bg-gray-50">
+      {/* Header */}
       <div className="p-3 border-b bg-white">
         <div className="text-sm font-semibold">Slides</div>
-        <div className="text-xs text-gray-500">Tap a slide to jump</div>
+        <div className="text-xs text-gray-500">Click a slide to jump</div>
       </div>
 
-      {/* Drawer list */}
-      <div className="flex-1 overflow-y-auto bg-gray-50">
-        <div className="p-2 space-y-1">
-          {Array.from({ length: numPages }, (_, idx) => {
-            const n = idx + 1;
+      {/* Virtualized list */}
+      <div className="flex-1 overflow-hidden">
+        <List
+          ref={listRef}
+          height={typeof window === 'undefined' ? 600 : window.innerHeight - 160}
+          itemCount={numPages}
+          itemSize={ROW_H}
+          width="100%"
+        >
+          {({ index, style }) => {
+            const n = index + 1;
             const active = n === pageNumber;
 
             return (
-              <button
-                key={n}
-                onClick={() => {
-                  setPageNumber(n);         // change the slide in the center viewer
-                  setCommentTargetPage(n);  // keep comments synced to that slide
-                  onPick?.();               // close drawer on mobile, if used
-                }}
-                className={[
-                  // List row styling (compact + readable)
-                  'w-full text-left rounded-md border px-3 py-2 bg-white hover:bg-gray-50',
-                  active ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-                ].join(' ')}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">Slide {n}</span>
+              <div style={style} className="p-2">
+                <button
+                  onClick={() => {
+                    setPageNumber(n);        // move center PDF
+                    setCommentTargetPage(n); // keep comments synced
+                  }}
+                  className={[
+                    'w-full rounded-lg border bg-white overflow-hidden text-left',
+                    active ? 'border-blue-600 ring-2 ring-blue-200' : 'border-gray-200',
+                  ].join(' ')}
+                  title={`Go to slide ${n}`}
+                >
+                  {/* Mini PDF page */}
+                  <div className="flex justify-center bg-white">
+                    <Document file={pdfUrl}>
+                      <Page
+                        pageNumber={n}
+                        width={THUMB_W}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                    </Document>
+                  </div>
 
-                  {/* Small dot to show the currently selected slide */}
-                  {active ? (
-                    <span className="text-xs text-blue-600">●</span>
-                  ) : (
-                    <span className="text-xs text-gray-400"> </span>
-                  )}
-                </div>
-              </button>
+                  {/* Label */}
+                  <div className="px-2 py-1 text-xs text-gray-600 flex justify-between border-t bg-white">
+                    <span>Slide {n}</span>
+                    {active && <span className="text-blue-600">●</span>}
+                  </div>
+                </button>
+              </div>
             );
-          })}
-        </div>
+          }}
+        </List>
       </div>
     </div>
   );
+};
+
+  };
 
 
   // Shared: comments panel
@@ -436,7 +466,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
         {/* Left: slide drawer */}
         <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
-          <SlideDrawer />
+          <MiniPdfNav />
         </div>
 
         {/* Center: single selected slide (pinch zoom + pan) */}
