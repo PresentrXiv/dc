@@ -564,13 +564,16 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </div>
 
                 <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                  <Page
-                    pageNumber={n}
-                    width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                    renderTextLayer={false}
-                    className="mx-auto"
-                  />
+                  <Document file={pdfUrl}>
+                    <Page
+                      pageNumber={n}
+                      width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                      renderTextLayer={false}
+                      className="mx-auto"
+                    />
+                  </Document>
                 </div>
+
 
                 {/* NEW: menu appears after user taps this slide */}
                 {mobileSlideMenu?.open && mobileSlideMenu.page === n && (
