@@ -192,10 +192,10 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   );
 
   const pageComments = useMemo(
-    () => comments.filter((c) => c.page === pageNumber),
-    [comments, pageNumber]
+    () => comments.filter((c) => c.page === commentTargetPage),
+    [comments, commentTargetPage]
   );
-
+  
   // Widths
   const centerPageWidth = useMemo(() => {
     if (typeof window === 'undefined') return 700;
@@ -303,7 +303,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           <div>
             <div className="text-sm font-semibold">Comments</div>
             <div className="text-xs text-gray-500">
-              Slide {pageNumber} of {numPages || '…'}
+              Slide {commentTargetPage} of {numPages || '…'}
             </div>
           </div>
 
@@ -338,12 +338,12 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             {pageComments.map((c) => (
               <div key={getId(c)} className="border rounded p-3 bg-white">
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="font-semibold">{c.author}</span>
+                  <span className="font-semibold text-gray-900">{c.author}</span>
                   <span className="text-gray-500">
                     {c.timestamp.toLocaleString()}
                   </span>
                 </div>
-                <p className="whitespace-pre-wrap text-sm">{c.text}</p>
+                <p className="whitespace-pre-wrap text-sm text-gray-900">{c.text}</p>
               </div>
             ))}
           </div>
@@ -480,9 +480,18 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                     n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
                   ].join(' ')}
                 >
-                  <div className="px-3 py-2 border-b text-sm font-semibold">
-                    Slide {n}
+                  <div
+                    className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCommentTargetPage(n);                 // this is the slide we are commenting on
+                      setMobileSlideMenu({ open: true, page: n }); // show menu for THIS slide
+                    }}
+                  >
+                    <span>Slide {n}</span>
+                    <span className="text-xs text-gray-500">Tap for comments</span>
                   </div>
+
 
                   {/* NOTE: keeping this simple/reliable: native scroll + no swipe conflicts.
                        If you later want pinch zoom per page, we can add a “tap to focus/zoom” mode. */}
@@ -495,6 +504,34 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                         className="mx-auto"
                       />
                     </Document>
+                    {mobileSlideMenu?.open && mobileSlideMenu.page === n && (
+                      <div className="p-3">
+                        <div className="inline-flex gap-2 bg-white border shadow rounded-full px-2 py-1">
+                          <button
+                            className="text-sm px-3 py-2 rounded-full bg-gray-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowCommentsDrawerMobile(true); // open the comments drawer
+                              setMobileSlideMenu(null);          // hide the menu
+                            }}
+                          >
+                            View comments
+                          </button>
+
+                          <button
+                            className="text-sm px-3 py-2 rounded-full bg-green-600 text-white"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowCommentModal(true);         // open the modal
+                              setMobileSlideMenu(null);          // hide the menu
+                            }}
+                          >
+                            Add comment
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                   </div>
 
                 </div>
@@ -533,49 +570,49 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
       {/* Comment modal: works everywhere */}
       {showCommentModal && (
-  <div
-    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-    onClick={() => setShowCommentModal(false)}
-  >
-    <div
-      className="bg-white rounded p-6 max-w-lg w-full"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h2 className="text-xl font-bold mb-3">
-        Add Comment (Slide {commentTargetPage})
-      </h2>
-
-      <textarea
-        value={newComment}
-        onChange={(e) => setNewComment(e.target.value)}
-        rows={5}
-        className="w-full border rounded p-2 mb-3"
-        placeholder="Your comment…"
-        autoFocus
-      />
-
-      <div className="flex justify-end gap-3">
-        <button
-          onClick={() => {
-            setShowCommentModal(false);
-            setNewComment('');
-          }}
-          className="px-4 py-2 border rounded"
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={() => setShowCommentModal(false)}
         >
-          Cancel
-        </button>
+          <div
+            className="bg-white rounded p-6 max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-3">
+              Add Comment (Slide {commentTargetPage})
+            </h2>
 
-        <button
-          onClick={addComment}
-          disabled={!newComment.trim()}
-          className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300"
-        >
-          Post
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+            <textarea
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              rows={5}
+              className="w-full border rounded p-2 mb-3"
+              placeholder="Your comment…"
+              autoFocus
+            />
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowCommentModal(false);
+                  setNewComment('');
+                }}
+                className="px-4 py-2 border rounded"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={addComment}
+                disabled={!newComment.trim()}
+                className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
