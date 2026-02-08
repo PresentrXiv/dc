@@ -152,9 +152,12 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
-    setPageNumber(1);
-    setCommentTargetPage(1);
+  
+    // Only reset to slide 1 the first time the PDF loads
+    setPageNumber((prev) => (prev < 1 || prev > numPages ? 1 : prev));
+    setCommentTargetPage((prev) => (prev < 1 || prev > numPages ? 1 : prev));
   }
+  
 
   async function addComment() {
     if (!newComment.trim()) return;
@@ -253,7 +256,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // This is invisible, but triggers onLoadSuccess reliably.
   const HiddenLoader = () => (
     <div style={{ display: 'none' }}>
-      <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess} loading={null} error={null}>
+     <Document file={pdfUrl} loading={null} error={null}>
+
         <Page pageNumber={1} width={1} renderTextLayer={false} renderAnnotationLayer={false} />
       </Document>
     </div>
