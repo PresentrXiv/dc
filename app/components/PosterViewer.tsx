@@ -30,6 +30,52 @@ type Comment = {
 function getId(c: Comment) {
   return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
 }
+function PdfThumb({
+  pdfUrl,
+  pageNumber,
+  width,
+}: {
+  pdfUrl: string;
+  pageNumber: number;
+  width: number;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (!pdfUrl || failed) {
+    return (
+      <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
+        Slide {pageNumber}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded overflow-hidden bg-white">
+      <Document
+        file={pdfUrl}
+        loading={
+          <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
+            Loading…
+          </div>
+        }
+        error={
+          <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
+            Slide {pageNumber}
+          </div>
+        }
+        onLoadError={() => setFailed(true)}
+        onSourceError={() => setFailed(true)}
+      >
+        <Page
+          pageNumber={pageNumber}
+          width={width}
+          renderTextLayer={false}
+          renderAnnotationLayer={false}
+        />
+      </Document>
+    </div>
+  );
+}
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const router = useRouter();
@@ -282,9 +328,14 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             >
               <div className="flex items-center gap-2">
                 <div className="shrink-0">
-                  <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
-                    Slide {n}
-                  </div>
+                  {Math.abs(n - pageNumber) <= 15 ? (
+                    <PdfThumb pdfUrl={pdfUrl} pageNumber={n} width={thumbWidth} />
+                  ) : (
+                    <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
+                      Slide {n}
+                    </div>
+                  )}
+
                 </div>
 
               </div>
