@@ -376,67 +376,71 @@ const MiniPdfNav = () => {
       </div>
     </div>
   );
-};
+}; // end MiniPdfNav
 
+// Shared: comments panel
+
+  type CommentsPanelProps = {
+    compactHeader?: boolean;
+    page: number;
+    numPages: number;
+    loading: boolean;
+    comments: Comment[];
+    onAdd: () => void;
   };
-
-
-  // Shared: comments panel
-  const CommentsPanel = ({ compactHeader }: { compactHeader?: boolean }) => (
-    <div className="h-full flex flex-col bg-white">
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-semibold">Comments</div>
-            <div className="text-xs text-gray-500">
-              Slide {commentTargetPage} of {numPages || '…'}
+  
+  const CommentsPanel = ({
+    compactHeader,
+    page,
+    numPages,
+    loading,
+    comments,
+    onAdd,
+  }: CommentsPanelProps) => {
+    return (
+      <div className="h-full flex flex-col">
+        {/* header */}
+        <div className={compactHeader ? "px-3 py-2" : "px-4 py-3"}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">
+              Comments — Page {page}
+              {Number.isFinite(numPages) && numPages > 0 ? ` / ${numPages}` : ""}
             </div>
+  
+            <button
+              type="button"
+              onClick={onAdd}
+              className="text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+            >
+              Add
+            </button>
           </div>
-
-          <button
-            onClick={() => {
-              setCommentTargetPage(pageNumber);   // pin the slide
-              setShowCommentModal(true);          // then open the box
-            }}
-            className="bg-green-600 text-white px-3 py-2 rounded text-sm"
-          >
-            Add
-          </button>
-
         </div>
-
-        {!compactHeader && (
-          <div className="mt-2 text-xs text-gray-500">
-            {loadingComments
-              ? 'Loading comments…'
-              : `${pageComments.length} comment${pageComments.length !== 1 ? 's' : ''} on this slide`}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-3 bg-gray-50">
-        {loadingComments ? (
-          <p className="text-sm text-gray-600">Loading comments…</p>
-        ) : pageComments.length === 0 ? (
-          <p className="text-sm text-gray-600">No comments yet on this slide.</p>
-        ) : (
-          <div className="space-y-3">
-            {pageComments.map((c) => (
-              <div key={getId(c)} className="border rounded p-3 bg-white">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="font-semibold text-gray-900">{c.author}</span>
-                  <span className="text-gray-500">
-                    {c.timestamp.toLocaleString()}
-                  </span>
+  
+        {/* body */}
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          {loading ? (
+            <div className="text-sm text-gray-500 py-4">Loading…</div>
+          ) : comments.length === 0 ? (
+            <div className="text-sm text-gray-500 py-4">No comments yet.</div>
+          ) : (
+            <div className="space-y-3 py-3">
+              {comments.map((c) => (
+                <div key={c._id ?? `${c.posterId}-${c.page}-${c.timestamp}`} className="rounded-lg border p-3">
+                  <div className="text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
+                  <div className="mt-2 text-xs text-gray-500">
+                    {c.author ?? "Anonymous"} •{" "}
+                    {c.timestamp ? new Date(c.timestamp).toLocaleString() : ""}
+                  </div>
                 </div>
-                <p className="whitespace-pre-wrap text-sm text-gray-900">{c.text}</p>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
+  
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -536,7 +540,17 @@ const MiniPdfNav = () => {
 
         {/* Right: comments */}
         <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden">
-          <CommentsPanel />
+        <CommentsPanel
+  page={commentTargetPage}
+  numPages={numPages}
+  loading={loadingComments}
+  comments={pageComments}
+  onAdd={() => {
+    setCommentTargetPage(pageNumber);
+    setShowCommentModal(true);
+  }}
+/>
+
         </div>
       </div>
 
@@ -640,7 +654,7 @@ const MiniPdfNav = () => {
               className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />
+             {/*} <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />*/}
             </div>
           </div>
         )}
@@ -653,7 +667,18 @@ const MiniPdfNav = () => {
               className="absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] bg-white shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <CommentsPanel compactHeader />
+              <CommentsPanel
+  compactHeader
+  page={commentTargetPage}
+  numPages={numPages}
+  loading={loadingComments}
+  comments={pageComments}
+  onAdd={() => {
+    setCommentTargetPage(pageNumber);
+    setShowCommentModal(true);
+  }}
+/>
+
             </div>
           </div>
         )}
