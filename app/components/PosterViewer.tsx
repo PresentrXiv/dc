@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import List from 'react-window';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
@@ -13,8 +12,8 @@ type Poster = {
   id: string;
   title?: string;
   author?: string;
-  fileUrl?: string;   // Vercel Blob URL
-  filepath?: string;  // legacy local field
+  fileUrl?: string; // Vercel Blob URL
+  filepath?: string; // legacy local field
 };
 
 type Comment = {
@@ -29,52 +28,6 @@ type Comment = {
 
 function getId(c: Comment) {
   return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
-}
-function PdfThumb({
-  pdfUrl,
-  pageNumber,
-  width,
-}: {
-  pdfUrl: string;
-  pageNumber: number;
-  width: number;
-}) {
-  const [failed, setFailed] = useState(false);
-
-  if (!pdfUrl || failed) {
-    return (
-      <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
-        Slide {pageNumber}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded overflow-hidden bg-white">
-      <Document
-        file={pdfUrl}
-        loading={
-          <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
-            Loading…
-          </div>
-        }
-        error={
-          <div className="w-[160px] h-[100px] bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
-            Slide {pageNumber}
-          </div>
-        }
-        onLoadError={() => setFailed(true)}
-        onSourceError={() => setFailed(true)}
-      >
-        <Page
-          pageNumber={pageNumber}
-          width={width}
-          renderTextLayer={false}
-          renderAnnotationLayer={false}
-        />
-      </Document>
-    </div>
-  );
 }
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
@@ -91,6 +44,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Comments state
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
+
   // Which slide the user is commenting on (important for mobile)
   const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
 
@@ -99,7 +53,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     open: boolean;
     page: number;
   } | null>(null);
-
 
   // Comment modal (posting)
   const [showCommentModal, setShowCommentModal] = useState(false);
@@ -122,8 +75,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
   // Configure pdf.js worker
   useEffect(() => {
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+    pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   }, []);
 
   // Track orientation + breakpoint
@@ -201,6 +153,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
     setPageNumber(1);
+    setCommentTargetPage(1);
   }
 
   async function addComment() {
@@ -223,19 +176,13 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     }
 
     const saved = await res.json();
-    setComments((prev) => [
-      ...prev,
-      { ...saved, timestamp: new Date(saved.timestamp) },
-    ]);
+    setComments((prev) => [...prev, { ...saved, timestamp: new Date(saved.timestamp) }]);
 
     setNewComment('');
     setShowCommentModal(false);
   }
 
-  const pdfUrl = useMemo(
-    () => poster?.fileUrl || poster?.filepath || '',
-    [poster]
-  );
+  const pdfUrl = useMemo(() => poster?.fileUrl || poster?.filepath || '', [poster]);
 
   const pageComments = useMemo(
     () => comments.filter((c) => c.page === commentTargetPage),
@@ -245,16 +192,18 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Widths
   const centerPageWidth = useMemo(() => {
     if (typeof window === 'undefined') return 700;
-    // Center column: give it room but don’t overflow
     if (isLargeScreen) return Math.min(1100, Math.floor(window.innerWidth * 0.52));
-    // Small screen single-page width (used rarely here)
     return Math.min(900, window.innerWidth - 24);
   }, [isLargeScreen]);
 
-  const thumbWidth = 160;
-
   const ZOOM_EPS = 0.02;
   const updateZoomed = (scale: number) => setIsZoomed(scale > 1 + ZOOM_EPS);
+
+  // Desktop: keep comment target synced to current slide (so right panel follows navigation)
+  useEffect(() => {
+    if (!isLargeScreen) return;
+    setCommentTargetPage(pageNumber);
+  }, [isLargeScreen, pageNumber]);
 
   // Small-screen: observe pages to keep “current page” in sync while scrolling
   useEffect(() => {
@@ -264,7 +213,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     observerRef.current?.disconnect();
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        // Pick the most-visible intersecting entry
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))[0];
@@ -273,10 +221,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
         const page = Number((visible.target as HTMLElement).dataset.page || '1');
         if (page && page !== pageNumber) setPageNumber(page);
       },
-      {
-        root: null,
-        threshold: [0.55, 0.7, 0.85],
-      }
+      { root: null, threshold: [0.55, 0.7, 0.85] }
     );
 
     for (let i = 1; i <= numPages; i++) {
@@ -292,7 +237,9 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   if (!poster) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
-        <Link href="/" className="text-blue-600">← Back</Link>
+        <Link href="/" className="text-blue-600">
+          ← Back
+        </Link>
 
         <div className="mt-6 bg-white p-6 rounded shadow">
           <p>Loading presentation…</p>
@@ -302,75 +249,38 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     );
   }
 
-// LEFT NAV (DESKTOP): thumbnail-sized mini PDF pages for navigation
-const MiniPdfNav = () => {
-  const listRef = useRef<List>(null);
+  // Ensure we load the PDF once to learn numPages (important for mobile + nav list)
+  // This is invisible, but triggers onLoadSuccess reliably.
+  const HiddenLoader = () => (
+    <div style={{ display: 'none' }}>
+      <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess} loading={null} error={null}>
+        <Page pageNumber={1} width={1} renderTextLayer={false} renderAnnotationLayer={false} />
+      </Document>
+    </div>
+  );
 
-  // Thumbnail sizing (laptop)
-  const THUMB_W = 220;     // width of the mini page
-  const ROW_H = 170;       // row height (must be >= thumb height + label)
-
-  // Keep left nav centered around the currently selected slide
-  useEffect(() => {
-    if (!isLargeScreen) return;
-    if (!numPages) return;
-    listRef.current?.scrollToItem(pageNumber - 1, 'center');
-  }, [pageNumber, isLargeScreen, numPages]);
-
-  return (
-    <div className="h-full flex flex-col bg-gray-50">
-      {/* Header */}
-      <div className="p-3 border-b bg-white">
-        <div className="text-sm font-semibold">Slides</div>
-        <div className="text-xs text-gray-500">Click a slide to jump</div>
-      </div>
-
-      {/* Virtualized list */}
-      <div className="flex-1 overflow-hidden">
-      <div className="overflow-y-auto h-full">
-  {Array.from({ length: numPages }, (_, index) => {
-    const n = index + 1;
-    const active = n === pageNumber;
+  // LEFT NAV (DESKTOP): simple scroll list of mini PDF pages (no virtualization yet)
+  const MiniPdfNav = () => {
+    const THUMB_W = 220;
 
     return (
-      <div key={n} className="p-2">
-        <button
-          onClick={() => {
-            setPageNumber(n);
-            setCommentTargetPage(n);
-          }}
-          className={[
-            'w-full rounded-lg border bg-white overflow-hidden text-left',
-            active ? 'border-blue-600 ring-2 ring-blue-200' : 'border-gray-200',
-          ].join(' ')}
-        >
-          <Document file={pdfUrl}>
-            <Page
-              pageNumber={n}
-              width={220}
-              renderTextLayer={false}
-              renderAnnotationLayer={false}
-            />
-          </Document>
-          <div className="px-2 py-1 text-xs text-gray-600 border-t">
-            Slide {n}
-          </div>
-        </button>
-      </div>
-    );
-  })}
-</div>
+      <div className="h-full flex flex-col bg-gray-50">
+        <div className="p-3 border-b bg-white">
+          <div className="text-sm font-semibold">Slides</div>
+          <div className="text-xs text-gray-500">Click a slide to jump</div>
+        </div>
 
-          {({ index, style }) => {
+        <div className="flex-1 overflow-y-auto">
+          {Array.from({ length: numPages }, (_, index) => {
             const n = index + 1;
             const active = n === pageNumber;
 
             return (
-              <div style={style} className="p-2">
+              <div key={n} className="p-2">
                 <button
                   onClick={() => {
-                    setPageNumber(n);        // move center PDF
-                    setCommentTargetPage(n); // keep comments synced
+                    setPageNumber(n);
+                    setCommentTargetPage(n);
                   }}
                   className={[
                     'w-full rounded-lg border bg-white overflow-hidden text-left',
@@ -378,9 +288,8 @@ const MiniPdfNav = () => {
                   ].join(' ')}
                   title={`Go to slide ${n}`}
                 >
-                  {/* Mini PDF page */}
                   <div className="flex justify-center bg-white">
-                    <Document file={pdfUrl}>
+                    <Document file={pdfUrl} loading={null} error={null}>
                       <Page
                         pageNumber={n}
                         width={THUMB_W}
@@ -390,7 +299,6 @@ const MiniPdfNav = () => {
                     </Document>
                   </div>
 
-                  {/* Label */}
                   <div className="px-2 py-1 text-xs text-gray-600 flex justify-between border-t bg-white">
                     <span>Slide {n}</span>
                     {active && <span className="text-blue-600">●</span>}
@@ -398,15 +306,13 @@ const MiniPdfNav = () => {
                 </button>
               </div>
             );
-          }}
-        </List>
+          })}
+        </div>
       </div>
-    </div>
-  );
-}; // end MiniPdfNav
+    );
+  };
 
-// Shared: comments panel
-
+  // Shared: comments panel (pure component via props)
   type CommentsPanelProps = {
     compactHeader?: boolean;
     page: number;
@@ -415,25 +321,17 @@ const MiniPdfNav = () => {
     comments: Comment[];
     onAdd: () => void;
   };
-  
-  const CommentsPanel = ({
-    compactHeader,
-    page,
-    numPages,
-    loading,
-    comments,
-    onAdd,
-  }: CommentsPanelProps) => {
+
+  const CommentsPanel = ({ compactHeader, page, numPages, loading, comments, onAdd }: CommentsPanelProps) => {
     return (
-      <div className="h-full flex flex-col">
-        {/* header */}
-        <div className={compactHeader ? "px-3 py-2" : "px-4 py-3"}>
+      <div className="h-full flex flex-col bg-white">
+        <div className={compactHeader ? 'px-3 py-2 border-b' : 'px-4 py-3 border-b'}>
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">
-              Comments — Page {page}
-              {Number.isFinite(numPages) && numPages > 0 ? ` / ${numPages}` : ""}
+              Comments — Slide {page}
+              {Number.isFinite(numPages) && numPages > 0 ? ` / ${numPages}` : ''}
             </div>
-  
+
             <button
               type="button"
               onClick={onAdd}
@@ -443,8 +341,7 @@ const MiniPdfNav = () => {
             </button>
           </div>
         </div>
-  
-        {/* body */}
+
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {loading ? (
             <div className="text-sm text-gray-500 py-4">Loading…</div>
@@ -453,11 +350,10 @@ const MiniPdfNav = () => {
           ) : (
             <div className="space-y-3 py-3">
               {comments.map((c) => (
-                <div key={c._id ?? `${c.posterId}-${c.page}-${c.timestamp}`} className="rounded-lg border p-3">
+                <div key={getId(c)} className="rounded-lg border p-3">
                   <div className="text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
                   <div className="mt-2 text-xs text-gray-500">
-                    {c.author ?? "Anonymous"} •{" "}
-                    {c.timestamp ? new Date(c.timestamp).toLocaleString() : ""}
+                    {c.author || 'Anonymous'} • {c.timestamp ? c.timestamp.toLocaleString() : ''}
                   </div>
                 </div>
               ))}
@@ -467,11 +363,12 @@ const MiniPdfNav = () => {
       </div>
     );
   };
-  
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top bar (always visible) */}
+      <HiddenLoader />
+
+      {/* Top bar */}
       <div className="sticky top-0 z-40 bg-white border-b">
         <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
           <Link href="/" className="text-blue-600 text-sm">
@@ -483,24 +380,20 @@ const MiniPdfNav = () => {
             <div className="truncate text-xs text-gray-500">{poster.author ? `by ${poster.author}` : ''}</div>
           </div>
 
-          <button
-            onClick={handleDelete}
-            className="bg-red-600 text-white px-3 py-2 rounded text-sm"
-          >
+          <button onClick={handleDelete} className="bg-red-600 text-white px-3 py-2 rounded text-sm">
             Delete
           </button>
         </div>
       </div>
 
-      {/* PDF Document wrapper once (so thumbs + pages share the same loaded file) */}
       {/* LARGE SCREEN: 3-column layout */}
       <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
-        {/* Left: slide drawer */}
+        {/* Left: nav */}
         <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
           <MiniPdfNav />
         </div>
 
-        {/* Center: single selected slide (pinch zoom + pan) */}
+        {/* Center: single selected slide */}
         <div className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden">
           <div className="h-full overflow-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
             <div className="p-3 border-b flex items-center justify-between">
@@ -535,7 +428,6 @@ const MiniPdfNav = () => {
                 wheel={{ disabled: true }}
                 doubleClick={{ mode: 'reset' }}
                 pinch={{ step: 5 }}
-                // don’t consume 1-finger gestures unless zoomed
                 panning={{ disabled: !isZoomed, velocityDisabled: true }}
                 onZoomStart={() => setIsZoomed(true)}
                 onZoomStop={({ state }) => updateZoomed(state.scale)}
@@ -554,8 +446,6 @@ const MiniPdfNav = () => {
                     </Document>
                   </div>
                 </TransformComponent>
-
-
               </TransformWrapper>
 
               <div className="mt-2 text-xs text-gray-500">
@@ -566,24 +456,23 @@ const MiniPdfNav = () => {
         </div>
 
         {/* Right: comments */}
-        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden">
-        <CommentsPanel
-  page={commentTargetPage}
-  numPages={numPages}
-  loading={loadingComments}
-  comments={pageComments}
-  onAdd={() => {
-    setCommentTargetPage(pageNumber);
-    setShowCommentModal(true);
-  }}
-/>
-
+        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+          <CommentsPanel
+            page={commentTargetPage}
+            numPages={numPages}
+            loading={loadingComments}
+            comments={pageComments}
+            onAdd={() => {
+              setCommentTargetPage(pageNumber);
+              setShowCommentModal(true);
+            }}
+          />
         </div>
       </div>
 
       {/* SMALL SCREEN: vertical scroll of all pages */}
       <div className="lg:hidden">
-        {/* floating buttons */}
+        {/* floating button */}
         <button
           onClick={() => setShowSlideDrawerMobile(true)}
           className="fixed left-3 bottom-4 z-50 bg-white border shadow px-4 py-3 rounded-full text-sm"
@@ -603,7 +492,9 @@ const MiniPdfNav = () => {
               return (
                 <div
                   key={n}
-                  ref={(el) => { pageRefs.current[n] = el; }}
+                  ref={(el) => {
+                    pageRefs.current[n] = el;
+                  }}
                   data-page={n}
                   className={[
                     'bg-white rounded-lg border overflow-hidden',
@@ -614,11 +505,8 @@ const MiniPdfNav = () => {
                     className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCommentTargetPage(n);                 // this is the slide we are commenting on
-                      setMobileSlideMenu((prev) =>
-                        prev?.open && prev.page === n ? null : { open: true, page: n }
-                      );
-                      // show menu for THIS slide
+                      setCommentTargetPage(n);
+                      setMobileSlideMenu((prev) => (prev?.open && prev.page === n ? null : { open: true, page: n }));
                     }}
                   >
                     <span>Slide {n}</span>
@@ -649,14 +537,10 @@ const MiniPdfNav = () => {
                     ) : (
                       <span className="text-xs text-gray-500 font-normal">Tap for comments</span>
                     )}
-
                   </div>
 
-
-                  {/* NOTE: keeping this simple/reliable: native scroll + no swipe conflicts.
-                       If you later want pinch zoom per page, we can add a “tap to focus/zoom” mode. */}
                   <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                    <Document file={pdfUrl}>
+                    <Document file={pdfUrl} loading={null} error={null}>
                       <Page
                         pageNumber={n}
                         width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
@@ -664,24 +548,25 @@ const MiniPdfNav = () => {
                         className="mx-auto"
                       />
                     </Document>
-
                   </div>
-
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Mobile slide drawer overlay */}
+        {/* Mobile slide drawer overlay (placeholder for now) */}
         {showSlideDrawerMobile && (
           <div className="fixed inset-0 z-50" onClick={() => setShowSlideDrawerMobile(false)}>
             <div className="absolute inset-0 bg-black/40" />
             <div
-              className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
+              className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl p-4"
               onClick={(e) => e.stopPropagation()}
             >
-             {/*} <SlideDrawer onPick={() => setShowSlideDrawerMobile(false)} />*/}
+              <div className="text-sm font-semibold mb-2">Slides</div>
+              <div className="text-xs text-gray-500">
+                Mobile slide drawer is intentionally simple right now. Close this and scroll.
+              </div>
             </div>
           </div>
         )}
@@ -695,36 +580,29 @@ const MiniPdfNav = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <CommentsPanel
-  compactHeader
-  page={commentTargetPage}
-  numPages={numPages}
-  loading={loadingComments}
-  comments={pageComments}
-  onAdd={() => {
-    setCommentTargetPage(pageNumber);
-    setShowCommentModal(true);
-  }}
-/>
-
+                compactHeader
+                page={commentTargetPage}
+                numPages={numPages}
+                loading={loadingComments}
+                comments={pageComments}
+                onAdd={() => {
+                  setCommentTargetPage(pageNumber);
+                  setShowCommentModal(true);
+                }}
+              />
             </div>
           </div>
         )}
       </div>
 
-
-      {/* Comment modal: works everywhere */}
+      {/* Comment modal */}
       {showCommentModal && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
           onClick={() => setShowCommentModal(false)}
         >
-          <div
-            className="bg-white rounded p-6 max-w-lg w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-3">
-              Add Comment (Slide {commentTargetPage})
-            </h2>
+          <div className="bg-white rounded p-6 max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-3">Add Comment (Slide {commentTargetPage})</h2>
 
             <textarea
               value={newComment}
@@ -757,7 +635,6 @@ const MiniPdfNav = () => {
           </div>
         </div>
       )}
-
     </div>
   );
 }
