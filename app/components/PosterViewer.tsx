@@ -327,13 +327,40 @@ const MiniPdfNav = () => {
 
       {/* Virtualized list */}
       <div className="flex-1 overflow-hidden">
-        <List
-          ref={listRef}
-          height={typeof window === 'undefined' ? 600 : window.innerHeight - 160}
-          itemCount={numPages}
-          itemSize={ROW_H}
-          width="100%"
+      <div className="overflow-y-auto h-full">
+  {Array.from({ length: numPages }, (_, index) => {
+    const n = index + 1;
+    const active = n === pageNumber;
+
+    return (
+      <div key={n} className="p-2">
+        <button
+          onClick={() => {
+            setPageNumber(n);
+            setCommentTargetPage(n);
+          }}
+          className={[
+            'w-full rounded-lg border bg-white overflow-hidden text-left',
+            active ? 'border-blue-600 ring-2 ring-blue-200' : 'border-gray-200',
+          ].join(' ')}
         >
+          <Document file={pdfUrl}>
+            <Page
+              pageNumber={n}
+              width={220}
+              renderTextLayer={false}
+              renderAnnotationLayer={false}
+            />
+          </Document>
+          <div className="px-2 py-1 text-xs text-gray-600 border-t">
+            Slide {n}
+          </div>
+        </button>
+      </div>
+    );
+  })}
+</div>
+
           {({ index, style }) => {
             const n = index + 1;
             const active = n === pageNumber;
