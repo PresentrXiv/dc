@@ -41,6 +41,11 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [numPages, setNumPages] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
 
+  // Set Page width
+  const centerColRef = useRef<HTMLDivElement | null>(null);
+  const [centerPageWidth, setCenterPageWidth] = useState(900);
+
+
   // Comments state
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
@@ -152,12 +157,12 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
-  
+
     // Only reset to slide 1 the first time the PDF loads
     setPageNumber((prev) => (prev < 1 || prev > numPages ? 1 : prev));
     setCommentTargetPage((prev) => (prev < 1 || prev > numPages ? 1 : prev));
   }
-  
+
 
   async function addComment() {
     if (!newComment.trim()) return;
@@ -193,11 +198,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   );
 
   // Widths
-  const centerPageWidth = useMemo(() => {
-    if (typeof window === 'undefined') return 700;
-    if (isLargeScreen) return Math.min(1100, Math.floor(window.innerWidth * 0.52));
-    return Math.min(900, window.innerWidth - 24);
-  }, [isLargeScreen]);
+
 
   const ZOOM_EPS = 0.02;
   const updateZoomed = (scale: number) => setIsZoomed(scale > 1 + ZOOM_EPS);
@@ -207,6 +208,26 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     if (!isLargeScreen) return;
     setCommentTargetPage(pageNumber);
   }, [isLargeScreen, pageNumber]);
+
+  //Measure center screen to size slide
+  useEffect(() => {
+    if (!centerColRef.current) return;
+
+    const el = centerColRef.current;
+
+    const update = () => {
+      const w = el.clientWidth;
+      setCenterPageWidth(Math.max(320, w - 24));
+    };
+
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+
 
   // Small-screen: observe pages to keep “current page” in sync while scrolling
   useEffect(() => {
@@ -256,7 +277,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // This is invisible, but triggers onLoadSuccess reliably.
   const HiddenLoader = () => (
     <div style={{ display: 'none' }}>
-     <Document file={pdfUrl} loading={null} error={null}>
+      <Document file={pdfUrl} loading={null} error={null}>
 
         <Page pageNumber={1} width={1} renderTextLayer={false} renderAnnotationLayer={false} />
       </Document>
@@ -393,7 +414,11 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       {/* LARGE SCREEN: 3-column layout */}
       <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
         {/* Left: nav */}
-        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+        <div
+          ref={centerColRef}
+          className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden"
+        >
+
           <MiniPdfNav />
         </div>
 
@@ -452,7 +477,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </TransformComponent>
               </TransformWrapper>
 
-              
+
             </div>
           </div>
         </div>
