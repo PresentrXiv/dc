@@ -125,7 +125,7 @@ export default function UploadPage() {
             <button
               type="button"
               onClick={() => router.push('/')}
-              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-500 transition-colors"
             >
               Cancel
             </button>
