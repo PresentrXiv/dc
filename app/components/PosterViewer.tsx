@@ -414,13 +414,13 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       {/* LARGE SCREEN: 3-column layout */}
       <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
         {/* Left: nav */}
-        <div
-          ref={centerColRef}
-          className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden"
-        >
-
-          <MiniPdfNav />
+        <div ref={centerColRef} className="h-[calc(100vh-76px)] rounded-lg border bg-white">
+          <div className="h-full overflow-auto">
+            {/* header */}
+            {/* TransformWrapper */}
+          </div>
         </div>
+
 
         {/* Center: single selected slide */}
         <div className="h-[calc(100vh-76px)] rounded-lg border bg-white overflow-hidden">
