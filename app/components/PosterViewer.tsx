@@ -452,9 +452,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </TransformComponent>
               </TransformWrapper>
 
-              <div className="mt-2 text-xs text-gray-500">
-                Tip: pinch to zoom, drag to pan (when zoomed), double-tap to reset.
-              </div>
+              
             </div>
           </div>
         </div>
