@@ -239,7 +239,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Loading state
   if (!poster) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-gray-500 p-8">
         <Link href="/" className="text-blue-600">
           ← Back
         </Link>
@@ -339,7 +339,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             <button
               type="button"
               onClick={onAdd}
-              className="text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+              className="text-sm px-3 py-1.5 rounded-md border hover:bg-gray-900"
             >
               Add
             </button>
