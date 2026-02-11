@@ -46,13 +46,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [loadingComments, setLoadingComments] = useState(true);
   const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
 
-  // Mobile slide menu
-  const [mobileSlideMenu, setMobileSlideMenu] = useState<{ open: boolean; page: number } | null>(
-    null
-  );
 
   // Comment modal
-  const [showCommentModal, setShowCommentModal] = useState(false);
   const [newComment, setNewComment] = useState('');
 
   // Responsive
@@ -60,7 +55,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [isLargeScreen, setIsLargeScreen] = useState(false);
 
   // Mobile overlays
-  const [showSlideDrawerMobile, setShowSlideDrawerMobile] = useState(false);
   const [showCommentsDrawerMobile, setShowCommentsDrawerMobile] = useState(false);
 
   // Zoom state (desktop center)
@@ -203,7 +197,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     const saved = await res.json();
     setComments((prev) => [...prev, { ...saved, timestamp: new Date(saved.timestamp) }]);
     setNewComment('');
-    setShowCommentModal(false);
   }
 
   // Mobile: observe pages to keep current slide
@@ -265,35 +258,43 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             const active = n === pageNumber;
 
             return (
-              <div key={n} className="p-2">
-                <button
-                  onClick={() => {
-                    setPageNumber(n);
+              <div
+                key={n}
+                ref={(el) => {
+                  pageRefs.current[n] = el;
+                }}
+                data-page={n}
+                className={[
+                  'bg-white rounded-lg border overflow-hidden',
+                  n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+                ].join(' ')}
+              >
+                {/* Header: tap opens comments mode */}
+                <div
+                  className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setCommentTargetPage(n);
-                    onPick?.();
+                    setShowCommentsDrawerMobile(true);
                   }}
-                  className={[
-                    'w-full rounded-lg border bg-white text-left',
-                    active ? 'border-blue-600 ring-2 ring-blue-200' : 'border-gray-200',
-                  ].join(' ')}
-                  title={`Go to slide ${n}`}
                 >
-                  <div className="overflow-hidden rounded-t-lg flex justify-center bg-white">
-                    <Page
-                      pageNumber={n}
-                      width={THUMB_W}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                    />
-                  </div>
+                  <span>Slide {n}</span>
+                  <span className="text-xs text-gray-500 font-normal">Comments</span>
+                </div>
 
-                  <div className="px-2 py-1 text-xs text-gray-600 flex justify-between border-t bg-white">
-                    <span>Slide {n}</span>
-                    {active && <span className="text-blue-600">●</span>}
-                  </div>
-                </button>
+                {/* Slide */}
+                <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                  <Page
+                    pageNumber={n}
+                    width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    className="mx-auto"
+                  />
+                </div>
               </div>
             );
+
           })}
         </div>
       </div>
@@ -437,9 +438,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                   </TransformComponent>
                 </TransformWrapper>
 
-                <div className="mt-2 text-xs text-gray-500">
-                  Tip: pinch to zoom, drag to pan (when zoomed), double-tap to reset.
-                </div>
+                
               </div>
             </div>
           </div>
@@ -453,7 +452,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               comments={pageComments}
               onAdd={() => {
                 setCommentTargetPage(pageNumber);
-                setShowCommentModal(true);
               }}
             />
           </div>
@@ -461,12 +459,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
         {/* MOBILE */}
         <div className="lg:hidden">
-          <button
-            onClick={() => setShowSlideDrawerMobile(true)}
-            className="fixed left-3 bottom-4 z-50 bg-white border shadow px-4 py-3 rounded-full text-sm"
-          >
-            ☰ Slides
-          </button>
+
 
           <div className="px-2 py-3">
             <div className="text-center text-xs text-gray-500 mb-2">
@@ -475,140 +468,103 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </div>
 
             <div className="space-y-4">
-              {Array.from({ length: numPages }, (_, idx) => {
-                const n = idx + 1;
-                return (
-                  <div
-                    key={n}
-                    ref={(el) => {
-                      pageRefs.current[n] = el;
-                    }}
-                    data-page={n}
-                    className={[
-                      'bg-white rounded-lg border overflow-hidden',
-                      n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-                    ].join(' ')}
-                  >
-                    <div
-                      className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCommentTargetPage(n);
-                        setMobileSlideMenu((prev) =>
-                          prev?.open && prev.page === n ? null : { open: true, page: n }
-                        );
-                      }}
-                    >
-                      <span>Slide {n}</span>
-                      {mobileSlideMenu?.open && mobileSlideMenu.page === n ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="text-xs px-2 py-1 rounded bg-gray-100 font-normal"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowCommentsDrawerMobile(true);
-                              setMobileSlideMenu(null);
-                            }}
-                          >
-                            View
-                          </button>
+  {Array.from({ length: numPages }, (_, idx) => {
+    const n = idx + 1;
 
-                          <button
-                            className="text-xs px-2 py-1 rounded bg-green-600 text-white font-normal"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowCommentModal(true);
-                              setMobileSlideMenu(null);
-                            }}
-                          >
-                            Add
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-500 font-normal">Tap for comments</span>
-                      )}
-                    </div>
-
-                    <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                      <Page
-                        pageNumber={n}
-                        width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        className="mx-auto"
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Mobile slide drawer */}
-          {showSlideDrawerMobile && (
-            <div className="fixed inset-0 z-50" onClick={() => setShowSlideDrawerMobile(false)}>
-              <div className="absolute inset-0 bg-black/40" />
-              <div
-                className="absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] bg-white shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {numPages > 0 ? <MiniNav onPick={() => setShowSlideDrawerMobile(false)} /> : null}
-              </div>
-            </div>
-          )}
-
-          {/* Mobile comments drawer */}
-          {showCommentsDrawerMobile && (
-            <div className="fixed inset-0 z-50" onClick={() => setShowCommentsDrawerMobile(false)}>
-              <div className="absolute inset-0 bg-black/40" />
-              <div
-                className="absolute right-0 top-0 bottom-0 w-[90%] max-w-[380px] bg-white shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <CommentsPanel
-                  compactHeader
-                  page={commentTargetPage}
-                  numPages={numPages}
-                  loading={loadingComments}
-                  comments={pageComments}
-                  onAdd={() => {
-                    setShowCommentModal(true);
-                  }}
-                />
-              </div>
-            </div>
-          )}
+    return (
+      <div
+        key={n}
+        ref={(el) => {
+          pageRefs.current[n] = el;
+        }}
+        data-page={n}
+        className={[
+          'bg-white rounded-lg border overflow-hidden',
+          n === pageNumber
+            ? 'border-blue-600 ring-1 ring-blue-200'
+            : 'border-gray-200',
+        ].join(' ')}
+      >
+        {/* Header: tap to open comments */}
+        <div
+          className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
+          onClick={(e) => {
+            e.stopPropagation();
+            setCommentTargetPage(n);
+            setShowCommentsDrawerMobile(true);
+          }}
+        >
+          <span>Slide {n}</span>
+          <span className="text-xs text-gray-500 font-normal">
+            Comments
+          </span>
         </div>
 
-        {/* Comment modal */}
-        {showCommentModal && (
-          <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-            onClick={() => setShowCommentModal(false)}
-          >
-            <div className="bg-white rounded p-6 max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-xl font-bold mb-3">Add Comment (Slide {commentTargetPage})</h2>
+        {/* Slide content */}
+        <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+          <Page
+            pageNumber={n}
+            width={
+              typeof window === 'undefined'
+                ? 380
+                : Math.min(900, window.innerWidth - 16)
+            }
+            renderTextLayer={false}
+            renderAnnotationLayer={false}
+            className="mx-auto"
+          />
+        </div>
+      </div>
+    );
+  })}
+</div>
 
+
+
+
+
+        {/* Mobile comments drawer */}
+        {showCommentsDrawerMobile && (
+          <div className="fixed inset-0 z-50 bg-white">
+            <div className="sticky top-0 z-10 border-b bg-white px-4 py-3 flex items-center justify-between">
+              <div className="font-semibold text-sm">Comments — Slide {commentTargetPage}</div>
+              <button
+                className="text-sm px-3 py-1.5 rounded-md border"
+                onClick={() => setShowCommentsDrawerMobile(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="px-4 py-3 overflow-y-auto" style={{ height: 'calc(100vh - 160px)' }}>
+              {/* list comments */}
+              {loadingComments ? (
+                <div className="text-sm text-gray-500">Loading…</div>
+              ) : pageComments.length === 0 ? (
+                <div className="text-sm text-gray-500">No comments yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {pageComments.map((c) => (
+                    <div key={getId(c)} className="rounded-lg border p-3">
+                      <div className="text-sm whitespace-pre-wrap">{c.text}</div>
+                      <div className="mt-2 text-xs text-gray-500">
+                        {c.author || 'Anonymous'} • {c.timestamp?.toLocaleString?.() ?? ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t bg-white p-3">
               <textarea
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                rows={5}
-                className="w-full border rounded p-2 mb-3 text-gray-900 placeholder-gray-400"
-                placeholder="Your comment…"
-                autoFocus
+                rows={3}
+                className="w-full border rounded p-2 text-gray-900 placeholder-gray-400"
+                placeholder="Write a comment…"
               />
-
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowCommentModal(false);
-                    setNewComment('');
-                  }}
-                  className="px-4 py-2 border rounded"
-                >
-                  Cancel
-                </button>
-
+              <div className="flex justify-end mt-2">
                 <button
                   onClick={addComment}
                   disabled={!newComment.trim()}
@@ -621,6 +577,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           </div>
         )}
       </div>
-    </Document>
+    </div>
   );
 }
+
