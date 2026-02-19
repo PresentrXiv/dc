@@ -8,13 +8,24 @@ export type Comment = {
   posterId: string;
   page: number;
   text: string;
-  author: string;
+  author?: string;
   timestamp: Date;
 };
+
 
 function getId(c: Comment) {
   return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
 }
+type CommentsPanelProps = {
+  compactHeader?: boolean;
+  page: number;
+  numPages: number;
+  loading: boolean;
+  comments: Comment[];
+  onOpenAdd: () => void;
+  onOpenEdit: (c: Comment) => void;
+};
+
 
 export default function CommentsPanel({
   compactHeader,
@@ -24,15 +35,9 @@ export default function CommentsPanel({
   comments,
   onOpenAdd,
   onOpenEdit,
-}: {
-  compactHeader?: boolean;
-  page: number;
-  numPages: number;
-  loading: boolean;
-  comments: Comment[];
-  onOpenAdd: () => void;
-  onOpenEdit: (c: Comment) => void;
-}) {
+}: CommentsPanelProps) {
+
+
   return (
     <div className="h-full flex flex-col">
       <div className={compactHeader ? 'px-3 py-2 border-b' : 'px-4 py-3 border-b'}>
@@ -44,11 +49,15 @@ export default function CommentsPanel({
           </div>
 
           <button
-            onClick={onOpenAdd}
+  onClick={onOpenAdd}
+
             className="shrink-0 rounded bg-blue-600 text-white text-sm px-3 py-1.5 hover:bg-blue-700"
           >
             Add
           </button>
+
+
+
         </div>
       </div>
 

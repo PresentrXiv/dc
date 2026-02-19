@@ -401,6 +401,12 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
+      {composerOpen && (
+        <div className="fixed bottom-4 left-4 z-[200] rounded bg-black text-white px-3 py-2 text-sm">
+          composerOpen = true
+        </div>
+      )}
+
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-white border-b">
           <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
@@ -530,7 +536,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               }}
             />
           </div>
-
+            {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
+            <CommentComposerModal
+              open={composerOpen}
+              mode={composerMode}
+              page={composerPage}
+              numPages={numPages}
+              initialText={composerInitialText}
+              onClose={() => setComposerOpen(false)}
+              onSubmit={async (text) => {
+                await addComment(composerPage, text);
+                setComposerOpen(false);
+              }}
+            />
 
           {/* MOBILE */}
           <div className="lg:hidden">
@@ -598,19 +616,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
 
 
-            {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
-            <CommentComposerModal
-              open={composerOpen}
-              mode={composerMode}
-              page={composerPage}
-              numPages={numPages}
-              initialText={composerInitialText}
-              onClose={() => setComposerOpen(false)}
-              onSubmit={async (text) => {
-                await addComment(composerPage, text);
-                setComposerOpen(false);
-              }}
-            />
+
           </div>
         </div>
       </div>
