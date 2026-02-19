@@ -121,7 +121,7 @@ export default function PDFViewer() {
             >
               ← Previous
             </button>
-            <span className="font-medium px-4">
+            <span className="font-medium px-4 text-gray-700">
               Slide {pageNumber} of {numPages}
             </span>
             <button 
@@ -168,7 +168,7 @@ export default function PDFViewer() {
                     <span className="font-semibold text-blue-700">
                       {comment.author}
                     </span>
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                    <span className="text-xs text-gray-700 whitespace-nowrap">
                       {comment.timestamp.toLocaleString()}
                     </span>
                   </div>
@@ -199,7 +199,7 @@ export default function PDFViewer() {
                 </h2>
                 <button
                   onClick={() => setShowCommentModal(false)}
-                  className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                  className="text-gray-700 hover:text-gray-700 text-2xl font-bold"
                 >
                   ×
                 </button>
@@ -217,7 +217,7 @@ export default function PDFViewer() {
                   rows={6}
                   autoFocus
                 />
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-gray-700 mt-2">
                   💡 Text highlighting coming soon
                 </p>
               </div>

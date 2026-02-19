@@ -73,7 +73,7 @@ export default function CommentComposerModal({
           />
 
           <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-700">
               Tip: Ctrl/⌘ + Enter to {mode === 'edit' ? 'save' : 'post'}
             </div>
 
