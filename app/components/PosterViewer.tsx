@@ -1,12 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import * as ZoomPanPinch from 'react-zoom-pan-pinch';
+import { List } from 'react-window';
+import CommentComposerModal from './CommentComposerModal';
+import CommentsPanel, { type Comment } from './CommentsPanel';
+
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+
+// ---- ZoomPanPinch (typed loosely to avoid TS/version mismatches) ----
+const TransformWrapper = ZoomPanPinch.TransformWrapper as unknown as React.ComponentType<any>;
+const TransformComponent = ZoomPanPinch.TransformComponent as unknown as React.ComponentType<any>;
 
 type Poster = {
   id: string;
@@ -16,22 +24,38 @@ type Poster = {
   filepath?: string;
 };
 
-type Comment = {
-  _id?: string;
-  id?: string;
-  posterId: string;
-  page: number;
-  text: string;
-  author: string;
-  timestamp: Date;
-};
+// Measure any element (used for left navigator sizing)
+function useMeasure<T extends HTMLElement>() {
+  const [node, setNode] = useState<T | null>(null);
+  const [rect, setRect] = useState({ width: 0, height: 0 });
 
-function getId(c: Comment) {
-  return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
+  // callback ref: guarantees we re-run effect when the DOM node appears/changes
+  const ref = React.useCallback((el: T | null) => {
+    setNode(el);
+  }, []);
+
+  useEffect(() => {
+    if (!node) return;
+
+    const update = () => {
+      const cr = node.getBoundingClientRect();
+      setRect({ width: cr.width, height: cr.height });
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [node]);
+
+  return { ref, rect };
 }
+
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const router = useRouter();
+
+
 
   // Poster metadata
   const [poster, setPoster] = useState<Poster | null>(null);
@@ -46,9 +70,13 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [loadingComments, setLoadingComments] = useState(true);
   const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
 
+  // Comment input
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<'add' | 'edit'>('add');
+  const [composerPage, setComposerPage] = useState<number>(1);
+  const [editCommentId, setEditCommentId] = useState<string | null>(null);
+  const [composerInitialText, setComposerInitialText] = useState<string>('');
 
-  // Comment modal
-  const [newComment, setNewComment] = useState('');
 
   // Responsive
   const [isLandscape, setIsLandscape] = useState(false);
@@ -57,16 +85,25 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Mobile overlays
   const [showCommentsDrawerMobile, setShowCommentsDrawerMobile] = useState(false);
 
-  // Zoom state (desktop center)
-  const [isZoomed, setIsZoomed] = useState(false);
+  // Center viewer measurement (robust, grows with layout)
+  const centerMeasure = useMeasure<HTMLDivElement>();
+
+
+  const centerPageWidth = useMemo(() => {
+    const w = centerMeasure.rect.width || 0;
+    // subtract: outer border (2) + inner p-3 (24) + safety (16) = 42ish
+    return Math.max(320, Math.floor(w - 48));
+  }, [centerMeasure.rect.width]);
+
+
 
   // Track mobile scrolling (current page)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
-  // Center page width (measured from actual container)
-  const centerViewerRef = useRef<HTMLDivElement | null>(null);
-  const [centerPageWidth, setCenterPageWidth] = useState<number>(900);
+
+
+
 
   // Configure pdf.js worker
   useEffect(() => {
@@ -85,21 +122,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  // Measure center viewer width (desktop)
-  useEffect(() => {
-    const el = centerViewerRef.current;
-    if (!el) return;
+  // Measure center viewer width (desktop) and cap ~900
 
-    const update = () => {
-      const w = el.clientWidth; // already excludes scrollbar
-      setCenterPageWidth(Math.max(320, w));
-    };
-
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Load poster + comments
   useEffect(() => {
@@ -166,25 +190,23 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     [comments, commentTargetPage]
   );
 
-  // IMPORTANT: only sets numPages; does not reset pageNumber
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
-
-    // Keep current page in bounds
     setPageNumber((prev) => (prev < 1 ? 1 : prev > numPages ? numPages : prev));
     setCommentTargetPage((prev) => (prev < 1 ? 1 : prev > numPages ? numPages : prev));
   }
 
-  async function addComment() {
-    if (!newComment.trim()) return;
+  async function addComment(targetPage: number, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
 
     const res = await fetch('/api/comments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         posterId,
-        page: commentTargetPage,
-        text: newComment.trim(),
+        page: targetPage,
+        text: trimmed,
         author: 'Anonymous',
       }),
     });
@@ -196,8 +218,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
     const saved = await res.json();
     setComments((prev) => [...prev, { ...saved, timestamp: new Date(saved.timestamp) }]);
-    setNewComment('');
   }
+
 
   // Mobile: observe pages to keep current slide
   useEffect(() => {
@@ -227,6 +249,141 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLargeScreen, numPages]);
 
+  // Zoomable page (used for SMALL SCREENS only, and only on the current slide to keep it light)
+  const ZoomablePage = ({
+    page,
+    width,
+    onZoomedChange,
+  }: {
+    page: number;
+    width: number;
+    onZoomedChange?: (zoomed: boolean) => void;
+  }) => {
+    return (
+      <TransformWrapper
+        minScale={1}
+        maxScale={3}
+        initialScale={1}
+        wheel={{ disabled: true }}
+        doubleClick={{ mode: 'reset' }}
+        pinch={{ step: 5 }}
+        panning={{ disabled: false, velocityDisabled: true }}
+        onZoomStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
+        onPanningStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
+        onPinchingStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
+      >
+        {() => (
+          <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+            <div className="w-full flex justify-center">
+              
+              <Page
+                pageNumber={page}
+                width={width}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+                className="mx-auto"
+              />
+            </div>
+          </TransformComponent>
+        )}
+      </TransformWrapper>
+    );
+  };
+
+  // ---- Virtualized mini navigator (react-window v2) ----
+
+  type NavRowExtraProps = {
+    currentPage: number;
+    onJump: (p: number) => void;
+    thumbWidth: number;
+  };
+
+  const MiniPdfNavigator = ({
+    numPages,
+    currentPage,
+    onJump,
+  }: {
+    numPages: number;
+    currentPage: number;
+    onJump: (page: number) => void;
+  }) => {
+    const { ref, rect } = useMeasure<HTMLDivElement>();
+
+    const thumbWidth = Math.max(140, Math.floor(rect.width) - 16);
+    const thumbHeight = Math.round(thumbWidth * 0.72);
+    const rowHeight = thumbHeight + 44;
+
+    const NavRow = ({
+      index,
+      style,
+      currentPage,
+      onJump,
+      thumbWidth,
+    }: {
+      index: number;
+      style: React.CSSProperties;
+    } & NavRowExtraProps) => {
+      const page = index + 1;
+      const isActive = page === currentPage;
+
+      return (
+        <div style={style} className="px-2 py-2">
+          <button
+            onClick={() => onJump(page)}
+            className={[
+              'w-full rounded-lg border bg-white hover:bg-gray-50 overflow-hidden',
+              isActive ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+            ].join(' ')}
+          >
+            <div className="p-2">
+              <div className="flex justify-center items-center" style={{ height: thumbHeight }}>
+                <Page
+                  pageNumber={page}
+                  width={thumbWidth}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
+              </div>
+
+              <div className="mt-2 text-xs text-gray-600 text-center">Slide {page}</div>
+            </div>
+          </button>
+        </div>
+      );
+    };
+
+    return (
+      <div className="h-full flex flex-col bg-gray-50">
+        <div className="p-3 border-b bg-white">
+          <div className="text-sm font-semibold">Slides</div>
+          <div className="text-xs text-gray-500">Click a slide to jump</div>
+        </div>
+
+        <div ref={ref} className="flex-1">
+          {rect.height > 0 && rect.width > 0 && numPages > 0 ? (
+            <List<NavRowExtraProps>
+              rowComponent={NavRow}
+              rowCount={numPages}
+              rowHeight={rowHeight}
+              rowProps={{
+                currentPage,
+                onJump,
+                thumbWidth,
+              }}
+              overscanCount={3}
+              defaultHeight={400}
+              style={{ height: rect.height, width: rect.width }}
+            />
+          ) : (
+            <div className="p-4 text-sm text-gray-500">Loading…</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ---------------- Render ----------------
+
   if (!poster) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
@@ -241,121 +398,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     );
   }
 
-  // Mini thumbnails component (used desktop + optionally mobile drawer)
-  const MiniNav = ({ onPick }: { onPick?: () => void }) => {
-    const THUMB_W = 220;
-
-    return (
-      <div className="h-full flex flex-col bg-gray-50">
-        <div className="p-3 border-b bg-white">
-          <div className="text-sm font-semibold">Slides</div>
-          <div className="text-xs text-gray-500">Click a slide to jump</div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {Array.from({ length: numPages }, (_, index) => {
-            const n = index + 1;
-            const active = n === pageNumber;
-
-            return (
-              <div
-                key={n}
-                ref={(el) => {
-                  pageRefs.current[n] = el;
-                }}
-                data-page={n}
-                className={[
-                  'bg-white rounded-lg border overflow-hidden',
-                  n === pageNumber ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-                ].join(' ')}
-              >
-                {/* Header: tap opens comments mode */}
-                <div
-                  className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCommentTargetPage(n);
-                    setShowCommentsDrawerMobile(true);
-                  }}
-                >
-                  <span>Slide {n}</span>
-                  <span className="text-xs text-gray-500 font-normal">Comments</span>
-                </div>
-
-                {/* Slide */}
-                <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                  <Page
-                    pageNumber={n}
-                    width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    className="mx-auto"
-                  />
-                </div>
-              </div>
-            );
-
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // Comments panel
-  const CommentsPanel = ({
-    compactHeader,
-    page,
-    numPages,
-    loading,
-    comments,
-    onAdd,
-  }: {
-    compactHeader?: boolean;
-    page: number;
-    numPages: number;
-    loading: boolean;
-    comments: Comment[];
-    onAdd: () => void;
-  }) => (
-    <div className="h-full flex flex-col bg-white">
-      <div className={compactHeader ? 'px-3 py-2 border-b' : 'px-4 py-3 border-b'}>
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold">
-            Comments — Slide {page}
-            {numPages > 0 ? ` / ${numPages}` : ''}
-          </div>
-          <button
-            type="button"
-            onClick={onAdd}
-            className="text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-          >
-            Add
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {loading ? (
-          <div className="text-sm text-gray-500 py-4">Loading…</div>
-        ) : comments.length === 0 ? (
-          <div className="text-sm text-gray-500 py-4">No comments yet.</div>
-        ) : (
-          <div className="space-y-3 py-3">
-            {comments.map((c) => (
-              <div key={getId(c)} className="rounded-lg border p-3">
-                <div className="text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
-                <div className="mt-2 text-xs text-gray-500">
-                  {c.author || 'Anonymous'} • {c.timestamp ? c.timestamp.toLocaleString() : ''}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // IMPORTANT: Single Document wraps everything that needs PDF pages
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
@@ -378,15 +420,44 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
         </div>
 
         {/* DESKTOP */}
-        <div className="hidden lg:grid lg:grid-cols-[260px_1fr_320px] lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-4 lg:py-4">
-          {/* Left nav */}
+        <div
+          className="
+          hidden lg:grid
+          lg:grid-cols-[clamp(190px,20vw,260px)_minmax(0,1fr)_clamp(240px,25vw,320px)]
+          lg:gap-3
+          lg:max-w-none lg:mx-auto lg:px-4 lg:py-4
+          xl:grid-cols-[clamp(220px,20vw,280px)_minmax(0,1fr)_clamp(280px,25vw,340px)]
+          xl:gap-4 xl:px-4"
+        >
+
+
+          {/* Left nav (virtualized) */}
           <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
-            {numPages > 0 ? <MiniNav /> : <div className="p-4 text-sm text-gray-500">Loading…</div>}
+            {numPages > 0 ? (
+              <MiniPdfNavigator
+                numPages={numPages}
+                currentPage={pageNumber}
+                onJump={(p) => {
+                  setPageNumber(p);
+                  setCommentTargetPage(p);
+                }}
+              />
+            ) : (
+              <div className="p-4 text-sm text-gray-500">Loading…</div>
+            )}
           </div>
 
-          {/* Center viewer */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border bg-white">
-            <div className="h-full overflow-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
+          {/* DESKTOP Center viewer */}
+          {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
+
+          {/* DESKTOP Center viewer */}
+          {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
+          
+          <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
+            <div
+              className="h-full overflow-x-auto overflow-y-auto"
+              style={{ touchAction: 'pan-y pinch-zoom' }}
+            >
               <div className="p-3 border-b flex items-center justify-between">
                 <div className="text-sm">
                   Slide <span className="font-semibold">{pageNumber}</span> of{' '}
@@ -396,14 +467,22 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 <div className="flex items-center gap-2">
                   <button
                     disabled={pageNumber <= 1}
-                    onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                    onClick={() => {
+                      const next = Math.max(1, pageNumber - 1);
+                      setPageNumber(next);
+                      setCommentTargetPage(next);
+                    }}
                     className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
                   >
                     Prev
                   </button>
                   <button
                     disabled={numPages === 0 || pageNumber >= numPages}
-                    onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                    onClick={() => {
+                      const next = Math.min(numPages, pageNumber + 1);
+                      setPageNumber(next);
+                      setCommentTargetPage(next);
+                    }}
                     className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
                   >
                     Next
@@ -411,34 +490,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </div>
               </div>
 
-              <div className="p-3" ref={centerViewerRef}>
-                <TransformWrapper
-                  minScale={1}
-                  maxScale={3}
-                  initialScale={1}
-                  wheel={{ disabled: true }}
-                  doubleClick={{ mode: 'reset' }}
-                  pinch={{ step: 5 }}
-                  panning={{ disabled: !isZoomed, velocityDisabled: true }}
-                  onZoomStart={() => setIsZoomed(true)}
-                  onZoomStop={({ state }) => setIsZoomed(state.scale > 1.02)}
-                  onPanningStop={({ state }) => setIsZoomed(state.scale > 1.02)}
-                  onPinchingStop={({ state }) => setIsZoomed(state.scale > 1.02)}
-                >
-                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
-                    <div className="w-full flex justify-center">
-                      <Page
-                        pageNumber={pageNumber}
-                        width={centerPageWidth}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        className="mx-auto"
-                      />
-                    </div>
-                  </TransformComponent>
-                </TransformWrapper>
-
-                
+              {/* This is the *single* measured box. */}
+              <div className="p-3">
+                <div className="mx-auto w-full">
+                  <div className="w-full flex justify-center">
+                    <Page
+                      pageNumber={pageNumber}
+                      width={centerPageWidth}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      className="mx-auto"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -450,134 +514,107 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               numPages={numPages}
               loading={loadingComments}
               comments={pageComments}
-              onAdd={() => {
-                setCommentTargetPage(pageNumber);
+              onOpenAdd={() => {
+                setComposerMode('add');
+                setComposerPage(commentTargetPage);
+                setEditCommentId(null);
+                setComposerInitialText('');
+                setComposerOpen(true);
+              }}
+              onOpenEdit={(c) => {
+                setComposerMode('edit');
+                setComposerPage(c.page);
+                setEditCommentId(c._id || c.id || null);
+                setComposerInitialText(c.text || '');
+                setComposerOpen(true);
+              }}
+            />
+          </div>
+
+
+          {/* MOBILE */}
+          <div className="lg:hidden">
+            <div className="px-2 py-3">
+              <div className="text-center text-xs text-gray-500 mb-2">
+                Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
+                {isLandscape ? ' (landscape)' : ''}
+              </div>
+
+              <div className="space-y-4">
+                {Array.from({ length: numPages }, (_, idx) => {
+                  const n = idx + 1;
+                  const isActive = n === pageNumber;
+
+                  return (
+                    <div
+                      key={n}
+                      ref={(el) => {
+                        pageRefs.current[n] = el;
+                      }}
+                      data-page={n}
+                      className={[
+                        'bg-white rounded-lg border overflow-hidden',
+                        isActive ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+                      ].join(' ')}
+                    >
+                      <div
+                        className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCommentTargetPage(n);
+                          setShowCommentsDrawerMobile(true);
+                        }}
+                      >
+                        <span>Slide {n}</span>
+                        <span className="text-xs text-gray-500 font-normal">Comments</span>
+                      </div>
+
+                      {/* Pinch zoom on SMALL SCREENS only — only for ACTIVE slide */}
+                      <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                        {isActive ? (
+                          <ZoomablePage
+                            page={n}
+                            width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                          />
+                          
+
+                        ) : (
+
+                          <Page
+                            pageNumber={n}
+                            width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
+                            renderTextLayer={false}
+                            renderAnnotationLayer={false}
+                            className="mx-auto"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+
+
+
+            {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
+            <CommentComposerModal
+              open={composerOpen}
+              mode={composerMode}
+              page={composerPage}
+              numPages={numPages}
+              initialText={composerInitialText}
+              onClose={() => setComposerOpen(false)}
+              onSubmit={async (text) => {
+                await addComment(composerPage, text);
+                setComposerOpen(false);
               }}
             />
           </div>
         </div>
-
-        {/* MOBILE */}
-        <div className="lg:hidden">
-
-
-          <div className="px-2 py-3">
-            <div className="text-center text-xs text-gray-500 mb-2">
-              Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
-              {isLandscape ? ' (landscape)' : ''}
-            </div>
-
-            <div className="space-y-4">
-  {Array.from({ length: numPages }, (_, idx) => {
-    const n = idx + 1;
-
-    return (
-      <div
-        key={n}
-        ref={(el) => {
-          pageRefs.current[n] = el;
-        }}
-        data-page={n}
-        className={[
-          'bg-white rounded-lg border overflow-hidden',
-          n === pageNumber
-            ? 'border-blue-600 ring-1 ring-blue-200'
-            : 'border-gray-200',
-        ].join(' ')}
-      >
-        {/* Header: tap to open comments */}
-        <div
-          className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
-          onClick={(e) => {
-            e.stopPropagation();
-            setCommentTargetPage(n);
-            setShowCommentsDrawerMobile(true);
-          }}
-        >
-          <span>Slide {n}</span>
-          <span className="text-xs text-gray-500 font-normal">
-            Comments
-          </span>
-        </div>
-
-        {/* Slide content */}
-        <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-          <Page
-            pageNumber={n}
-            width={
-              typeof window === 'undefined'
-                ? 380
-                : Math.min(900, window.innerWidth - 16)
-            }
-            renderTextLayer={false}
-            renderAnnotationLayer={false}
-            className="mx-auto"
-          />
-        </div>
       </div>
-    );
-  })}
-</div>
-
-
-
-
-
-        {/* Mobile comments drawer */}
-        {showCommentsDrawerMobile && (
-          <div className="fixed inset-0 z-50 bg-white">
-            <div className="sticky top-0 z-10 border-b bg-white px-4 py-3 flex items-center justify-between">
-              <div className="font-semibold text-sm">Comments — Slide {commentTargetPage}</div>
-              <button
-                className="text-sm px-3 py-1.5 rounded-md border"
-                onClick={() => setShowCommentsDrawerMobile(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="px-4 py-3 overflow-y-auto" style={{ height: 'calc(100vh - 160px)' }}>
-              {/* list comments */}
-              {loadingComments ? (
-                <div className="text-sm text-gray-500">Loading…</div>
-              ) : pageComments.length === 0 ? (
-                <div className="text-sm text-gray-500">No comments yet.</div>
-              ) : (
-                <div className="space-y-3">
-                  {pageComments.map((c) => (
-                    <div key={getId(c)} className="rounded-lg border p-3">
-                      <div className="text-sm whitespace-pre-wrap">{c.text}</div>
-                      <div className="mt-2 text-xs text-gray-500">
-                        {c.author || 'Anonymous'} • {c.timestamp?.toLocaleString?.() ?? ''}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t bg-white p-3">
-              <textarea
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                rows={3}
-                className="w-full border rounded p-2 text-gray-900 placeholder-gray-400"
-                placeholder="Write a comment…"
-              />
-              <div className="flex justify-end mt-2">
-                <button
-                  onClick={addComment}
-                  disabled={!newComment.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded disabled:bg-gray-300"
-                >
-                  Post
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+    </Document>
+      
+        );
 }
-
