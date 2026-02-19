@@ -82,8 +82,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [isLandscape, setIsLandscape] = useState(false);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
 
-  // Mobile overlays
-  const [showCommentsDrawerMobile, setShowCommentsDrawerMobile] = useState(false);
+
 
   // Center viewer measurement (robust, grows with layout)
   const centerMeasure = useMeasure<HTMLDivElement>();
@@ -553,74 +552,58 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               }}
             />
 
-          {/* MOBILE */}
-          <div className="lg:hidden">
-            <div className="px-2 py-3">
-              <div className="text-center text-xs text-gray-700 mb-2">
-                Scrolling updates current slide: <span className="font-semibold">{pageNumber}</span> / {numPages || '…'}
-                {isLandscape ? ' (landscape)' : ''}
-              </div>
+{/* MOBILE */}
+<div className="block lg:hidden px-3 py-4 space-y-4">
 
-              <div className="space-y-4">
-                {Array.from({ length: numPages }, (_, idx) => {
-                  const n = idx + 1;
-                  const isActive = n === pageNumber;
+  {/* Slide header */}
+  <div className="flex items-center justify-between">
+    <div className="text-sm font-medium text-gray-900">
+      Slide {pageNumber} / {numPages || '?'}
+    </div>
 
-                  return (
-                    <div
-                      key={n}
-                      ref={(el) => {
-                        pageRefs.current[n] = el;
-                      }}
-                      data-page={n}
-                      className={[
-                        'bg-white rounded-lg border overflow-hidden',
-                        isActive ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
-                      ].join(' ')}
-                    >
-                      <div
-                        className="px-3 py-2 border-b text-sm font-semibold flex items-center justify-between"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCommentTargetPage(n);
-                          setShowCommentsDrawerMobile(true);
-                        }}
-                      >
-                        <span>Slide {n}</span>
-                        <span className="text-xs text-gray-900 font-normal">Comments</span>
-                      </div>
+    <button
+      onClick={() => {
+        setComposerMode('add');
+        setComposerPage(pageNumber);
+        setComposerInitialText('');
+        setEditCommentId(null);
+        setComposerOpen(true);
+      }}
+      className="text-sm font-medium text-gray-800"
+    >
+      Comments
+    </button>
+  </div>
 
-                      {/* Pinch zoom on SMALL SCREENS only — only for ACTIVE slide */}
-                      <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                        {isActive ? (
-                          <ZoomablePage
-                            page={n}
-                            width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                          />
-                          
+  {/* Slide viewer */}
+  <div className="bg-white rounded-lg border p-2">
+    <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+      {/* Your PDF <Page /> component here */}
+    </div>
+  </div>
 
-                        ) : (
+  {/* Navigation */}
+  <div className="flex justify-between">
+    <button
+      disabled={pageNumber <= 1}
+      onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+      className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+    >
+      Prev
+    </button>
 
-                          <Page
-                            pageNumber={n}
-                            width={typeof window === 'undefined' ? 380 : Math.min(900, window.innerWidth - 16)}
-                            renderTextLayer={false}
-                            renderAnnotationLayer={false}
-                            className="mx-auto"
-                          />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+    <button
+      disabled={pageNumber >= numPages}
+      onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+      className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+    >
+      Next
+    </button>
+  </div>
+
+</div>
 
 
-
-
-
-          </div>
         </div>
       </div>
     </Document>
