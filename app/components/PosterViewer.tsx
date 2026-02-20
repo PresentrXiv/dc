@@ -4,18 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
-import * as ZoomPanPinch from 'react-zoom-pan-pinch';
 import { List } from 'react-window';
 import CommentComposerModal from './CommentComposerModal';
 import CommentsPanel, { type Comment } from './CommentsPanel';
 
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-
-
-// ---- ZoomPanPinch (typed loosely to avoid TS/version mismatches) ----
-const TransformWrapper = ZoomPanPinch.TransformWrapper as unknown as React.ComponentType<any>;
-const TransformComponent = ZoomPanPinch.TransformComponent as unknown as React.ComponentType<any>;
 
 type Poster = {
   id: string;
@@ -25,12 +19,11 @@ type Poster = {
   filepath?: string;
 };
 
-// Measure any element (used for left navigator sizing)
+// Measure any element (used for left navigator sizing + center column sizing)
 function useMeasure<T extends HTMLElement>() {
   const [node, setNode] = useState<T | null>(null);
   const [rect, setRect] = useState({ width: 0, height: 0 });
 
-  // callback ref: guarantees we re-run effect when the DOM node appears/changes
   const ref = React.useCallback((el: T | null) => {
     setNode(el);
   }, []);
@@ -51,31 +44,47 @@ function useMeasure<T extends HTMLElement>() {
 
   return { ref, rect };
 }
-//resize observer
-function useElementWidth<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
+
+// Robust width measurement for mobile container (handles iOS rotation better)
+function useResponsiveWidth<T extends HTMLElement>() {
+  const [node, setNode] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
-    if (!ref.current) return;
+  const ref = React.useCallback((el: T | null) => {
+    setNode(el);
+  }, []);
 
-    const el = ref.current;
+  useEffect(() => {
+    if (!node) return;
+
+    const update = () => {
+      setWidth(Math.floor(node.clientWidth));
+    };
+
+    update();
+
     const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect?.width ?? 0;
+      const w = entries[0]?.contentRect?.width ?? node.clientWidth ?? 0;
       setWidth(Math.floor(w));
     });
+    ro.observe(node);
 
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+
+    return () => {
+      ro.disconnect();
+      vv?.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, [node]);
 
   return { ref, width };
 }
 
 export default function PosterViewer({ posterId }: { posterId: string }) {
   const router = useRouter();
-
-
 
   // Poster metadata
   const [poster, setPoster] = useState<Poster | null>(null);
@@ -97,70 +106,18 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   const [editCommentId, setEditCommentId] = useState<string | null>(null);
   const [composerInitialText, setComposerInitialText] = useState<string>('');
 
-
   // Responsive
   const [isLandscape, setIsLandscape] = useState(false);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
 
-
-
-  // Center viewer measurement (robust, grows with layout)
+  // Measurements
   const centerMeasure = useMeasure<HTMLDivElement>();
-
-  // Mobile measurement (independent of desktop center column)
   const mobileMeasure = useResponsiveWidth<HTMLDivElement>();
+
+  // Mobile zoom controls (quick solution)
   const [mobileScale, setMobileScale] = useState(1);
-  const mobilePageWidth = useMemo(() => {
-    const w = mobileMeasure.width || 0;
-    return Math.max(0, Math.floor(w - 16));
-  }, [mobileMeasure.width]);
-  const centerPageWidth = useMemo(() => {
-    const w = centerMeasure.rect.width || 0;
-    // subtract: outer border (2) + inner p-3 (24) + safety (16) = 42ish
-    return Math.max(320, Math.floor(w - 48));
-  }, [centerMeasure.rect.width]);
 
-  function useResponsiveWidth<T extends HTMLElement>() {
-    const [node, setNode] = useState<T | null>(null);
-    const [width, setWidth] = useState(0);
-
-    const ref = React.useCallback((el: T | null) => {
-      setNode(el);
-    }, []);
-
-    useEffect(() => {
-      if (!node) return;
-
-      const updateFromClient = () => {
-        // clientWidth is often more stable than getBoundingClientRect on iOS rotation
-        setWidth(Math.floor(node.clientWidth));
-      };
-
-      updateFromClient();
-
-      const ro = new ResizeObserver((entries) => {
-        const w = entries[0]?.contentRect?.width ?? node.clientWidth ?? 0;
-        setWidth(Math.floor(w));
-      });
-
-      ro.observe(node);
-
-      // iOS Safari: visualViewport resize fires reliably on rotation
-      const vv = window.visualViewport;
-      if (vv) vv.addEventListener('resize', updateFromClient);
-      window.addEventListener('orientationchange', updateFromClient);
-
-      return () => {
-        ro.disconnect();
-        if (vv) vv.removeEventListener('resize', updateFromClient);
-        window.removeEventListener('orientationchange', updateFromClient);
-      };
-    }, [node]);
-
-    return { ref, width };
-  }
-
-  //swipe handlers
+  // Swipe handlers
   const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
 
   function onSwipeStart(e: React.TouchEvent) {
@@ -184,16 +141,15 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     if (Math.abs(dx) < Math.abs(dy) * 1.2) return; // mostly vertical
 
     if (dx < 0) {
-      // swipe left => next
       setPageNumber((p) => Math.min(numPages || p, p + 1));
+      setCommentTargetPage((p) => Math.min(numPages || p, p + 1));
     } else {
-      // swipe right => prev
       setPageNumber((p) => Math.max(1, p - 1));
+      setCommentTargetPage((p) => Math.max(1, p - 1));
     }
   }
 
-
-  // Configure pdf.js worker
+  // pdf.js worker
   useEffect(() => {
     pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   }, []);
@@ -201,7 +157,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Track orientation + breakpoint
   useEffect(() => {
     const update = () => {
-      if (typeof window === 'undefined') return;
       setIsLandscape(window.matchMedia('(orientation: landscape)').matches);
       setIsLargeScreen(window.matchMedia('(min-width: 1024px)').matches);
     };
@@ -209,9 +164,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-
-  // Measure center viewer width (desktop) and cap ~900
-
 
   // Load poster + comments
   useEffect(() => {
@@ -308,43 +260,24 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     setComments((prev) => [...prev, { ...saved, timestamp: new Date(saved.timestamp) }]);
   }
 
+  // Desktop center width
+  const centerPageWidth = useMemo(() => {
+    const w = centerMeasure.rect.width || 0;
+    return Math.max(320, Math.floor(w - 48));
+  }, [centerMeasure.rect.width]);
 
+  // Mobile width (don’t clamp to 320; can cause overflow on small widths)
+  const mobilePageWidth = useMemo(() => {
+    const w = mobileMeasure.width || 0;
+    return Math.max(0, Math.floor(w - 16)); // viewer has p-2
+  }, [mobileMeasure.width]);
 
-
-  // Zoomable page (used for SMALL SCREENS only, and only on the current slide to keep it light)
-  const ZoomablePage = ({
-    page,
-    width,
-    onZoomedChange,
-  }: {
-    page: number;
-    width: number;
-    onZoomedChange?: (zoomed: boolean) => void;
-  }) => {
-    return (
-      <TransformWrapper
-        minScale={1}
-        maxScale={3}
-        initialScale={1}
-        wheel={{ disabled: true }}
-        doubleClick={{ mode: 'reset' }}
-        pinch={{ step: 5 }}
-        panning={{ disabled: false, velocityDisabled: true }}
-        onZoomStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
-        onPanningStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
-        onPinchingStop={(ref: any) => onZoomedChange?.(ref?.state?.scale > 1.02)}
-      >
-        {() => (
-          <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
-
-          </TransformComponent>
-        )}
-      </TransformWrapper>
-    );
-  };
+  // Final mobile rendered width with user scaling
+  const mobileRenderWidth = useMemo(() => {
+    return Math.max(0, Math.floor(mobilePageWidth * mobileScale));
+  }, [mobilePageWidth, mobileScale]);
 
   // ---- Virtualized mini navigator (react-window v2) ----
-
   type NavRowExtraProps = {
     currentPage: number;
     onJump: (p: number) => void;
@@ -390,12 +323,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           >
             <div className="p-2">
               <div className="flex justify-center items-center" style={{ height: thumbHeight }}>
-                <Page
-                  pageNumber={page}
-                  width={thumbWidth}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                />
+                <Page pageNumber={page} width={thumbWidth} renderTextLayer={false} renderAnnotationLayer={false} />
               </div>
 
               <div className="mt-2 text-xs text-gray-600 text-center">Slide {page}</div>
@@ -418,11 +346,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               rowComponent={NavRow}
               rowCount={numPages}
               rowHeight={rowHeight}
-              rowProps={{
-                currentPage,
-                onJump,
-                thumbWidth,
-              }}
+              rowProps={{ currentPage, onJump, thumbWidth }}
               overscanCount={3}
               defaultHeight={400}
               style={{ height: rect.height, width: rect.width }}
@@ -436,7 +360,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   };
 
   // ---------------- Render ----------------
-
   if (!poster) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
@@ -454,12 +377,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
-        {composerOpen && (
-          <div className="fixed bottom-4 left-4 z-[200] rounded bg-black text-white px-3 py-2 text-sm">
-            composerOpen = true
-          </div>
-        )}
-
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-white border-b">
           <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
@@ -468,97 +385,96 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </Link>
 
             <div className="min-w-0 flex-1">
-              <div className="truncate text-base font-semibold text-gray-900">
-                {poster.title || 'Untitled'}
-              </div>
-
+              <div className="truncate text-base font-semibold text-gray-900">{poster.title || 'Untitled'}</div>
               <div className="truncate text-xs text-gray-700">{poster.author ? `by ${poster.author}` : ''}</div>
             </div>
 
-            <button
-              onClick={handleDelete}
-              className="hidden lg:inline-block bg-red-600 text-white px-3 py-2 rounded text-sm"
-            >
+            <button onClick={handleDelete} className="hidden lg:inline-block bg-red-600 text-white px-3 py-2 rounded text-sm">
               Delete
             </button>
           </div>
         </div>
+
         {/* MOBILE */}
-        <div className="w-full max-w-full overflow-hidden bg-white rounded-lg border p-2">
+        <div className="block lg:hidden px-3 py-4 space-y-3">
           {/* Header row */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMobileScale(1)}
-              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
-              title="Fit"
-            >
-              Fit
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMobileScale((s) => Math.max(0.6, +(s - 0.1).toFixed(2)))}
-              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
-              aria-label="Zoom out"
-              title="Zoom out"
-            >
-              −
-            </button>
-
-            <div className="text-xs text-gray-700 w-12 text-center tabular-nums">
-              {Math.round(mobileScale * 100)}%
+          <div className="flex items-center justify-between w-full">
+            <div className="text-sm font-medium text-gray-900">
+              Slide {pageNumber} / {numPages || '?'}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setMobileScale((s) => Math.min(2.5, +(s + 0.1).toFixed(2)))}
-              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
-              aria-label="Zoom in"
-              title="Zoom in"
-            >
-              +
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileScale(1)}
+                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+                title="Fit"
+              >
+                Fit
+              </button>
 
-            <button
-              onClick={() => {
-                setComposerMode('add');
-                setComposerPage(pageNumber);
-                setCommentTargetPage(pageNumber);
-                setComposerInitialText('');
-                setEditCommentId(null);
-                setComposerOpen(true);
-              }}
-              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
-            >
-              Comment
-            </button>
+              <button
+                type="button"
+                onClick={() => setMobileScale((s) => Math.max(0.6, +(s - 0.1).toFixed(2)))}
+                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+                aria-label="Zoom out"
+                title="Zoom out"
+              >
+                −
+              </button>
+
+              <div className="text-xs text-gray-700 w-12 text-center tabular-nums">{Math.round(mobileScale * 100)}%</div>
+
+              <button
+                type="button"
+                onClick={() => setMobileScale((s) => Math.min(2.5, +(s + 0.1).toFixed(2)))}
+                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+                aria-label="Zoom in"
+                title="Zoom in"
+              >
+                +
+              </button>
+
+              <button
+                onClick={() => {
+                  setComposerMode('add');
+                  setComposerPage(pageNumber);
+                  setCommentTargetPage(pageNumber);
+                  setComposerInitialText('');
+                  setEditCommentId(null);
+                  setComposerOpen(true);
+                }}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
+              >
+                Comment
+              </button>
+            </div>
           </div>
 
           {/* Viewer (swipe here) */}
           <div
             ref={mobileMeasure.ref}
-            className="w-full bg-white rounded-lg border p-2"
+            className={`w-full bg-white rounded-lg border p-2 max-w-full ${
+              isLandscape ? 'h-[calc(100dvh-140px)] overflow-hidden' : ''
+            }`}
             onTouchStart={onSwipeStart}
             onTouchEnd={onSwipeEnd}
           >
             <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-            <Page
-  key={`${pageNumber}-${mobilePageWidth}-${mobileScale}`}
-  pageNumber={pageNumber}
-  width={Math.floor(mobilePageWidth * mobileScale)}
-  renderTextLayer={false}
-  renderAnnotationLayer={false}
-/>
+              <Page
+                key={`${pageNumber}-${mobileRenderWidth}`}
+                pageNumber={pageNumber}
+                width={mobileRenderWidth}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+              />
             </div>
           </div>
 
-          <div className="text-center text-xs text-gray-700">
-            Swipe to change slides
-          </div>
+          <div className="text-center text-xs text-gray-700">Swipe to change slides</div>
         </div>
 
-        {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
+        {/* Modal composer */}
         <CommentComposerModal
           open={composerOpen}
           mode={composerMode}
@@ -571,18 +487,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             setComposerOpen(false);
           }}
         />
+
         {/* DESKTOP */}
         <div
           className="
-          hidden lg:grid
-          lg:grid-cols-[clamp(190px,20vw,260px)_minmax(0,1fr)_clamp(240px,25vw,320px)]
-          lg:gap-3
-          lg:max-w-none lg:mx-auto lg:px-4 lg:py-4
-          xl:grid-cols-[clamp(220px,20vw,280px)_minmax(0,1fr)_clamp(280px,25vw,340px)]
-          xl:gap-4 xl:px-4" >
-
-
-          {/* Left nav (virtualized) */}
+            hidden lg:grid
+            lg:grid-cols-[clamp(190px,20vw,260px)_minmax(0,1fr)_clamp(240px,25vw,320px)]
+            lg:gap-3
+            lg:max-w-none lg:mx-auto lg:px-4 lg:py-4
+            xl:grid-cols-[clamp(220px,20vw,280px)_minmax(0,1fr)_clamp(280px,25vw,340px)]
+            xl:gap-4 xl:px-4
+          "
+        >
+          {/* Left nav */}
           <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
             {numPages > 0 ? (
               <MiniPdfNavigator
@@ -598,15 +515,9 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             )}
           </div>
 
-
-          {/* DESKTOP Center viewer */}
-          {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
-
+          {/* Center viewer */}
           <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
-            <div
-              className="h-full overflow-x-auto overflow-y-auto"
-              style={{ touchAction: 'pan-y pinch-zoom' }}
-            >
+            <div className="h-full overflow-x-auto overflow-y-auto" style={{ touchAction: 'pan-y pinch-zoom' }}>
               <div className="p-3 border-b flex items-center justify-between">
                 <div className="text-sm text-gray-700">
                   Slide <span className="font-semibold text-gray-700">{pageNumber}</span> of{' '}
@@ -639,7 +550,6 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                 </div>
               </div>
 
-              {/* This is the *single* measured box. */}
               <div className="p-3">
                 <div className="mx-auto w-full">
                   <div className="w-full flex justify-center">
@@ -679,14 +589,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               }}
             />
           </div>
-
-
-
-
-
         </div>
       </div>
-    </Document >
-
+    </Document>
   );
 }
