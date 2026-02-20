@@ -456,11 +456,14 @@ const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
       initialScale={1}
       wheel={{ disabled: true }}
       doubleClick={{ mode: 'reset' }}
-      panning={{ velocityDisabled: true }}
-      onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
-      onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
-      onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
-    >
+     // - not zoomed => disable panning so swipe handlers can run
+  // - zoomed => enable panning so swipe drags the image
+  panning={{ disabled: !mobileZoomed, velocityDisabled: true }}
+
+  onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+  onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+  onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+>
       <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
         {/* Critical: stop browser-level pinch zoom */}
         <div style={{ touchAction: 'none' }} className="w-full flex justify-center">
@@ -475,7 +478,73 @@ const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
       </TransformComponent>
     </TransformWrapper>
   </div>
+{/* Comments (mobile portrait only) */}
+{!isLandscape && (
+  <div className="bg-white rounded-lg border">
+    <div className="flex items-center justify-between px-3 py-2 border-b">
+      <div className="text-sm font-semibold text-gray-800">
+        Comments <span className="text-gray-500 font-normal">({pageComments.length})</span>
+      </div>
 
+      <button
+        type="button"
+        onClick={() => {
+          setComposerMode('add');
+          setComposerPage(pageNumber);
+          setCommentTargetPage(pageNumber);
+          setEditCommentId(null);
+          setComposerInitialText('');
+          setComposerOpen(true);
+        }}
+        className="px-2 py-1.5 rounded bg-blue-600 text-white text-sm"
+      >
+        Add
+      </button>
+    </div>
+
+    <div className="max-h-[35dvh] overflow-y-auto px-3 py-2">
+      {loadingComments ? (
+        <div className="text-sm text-gray-600">Loading…</div>
+      ) : pageComments.length === 0 ? (
+        <div className="text-sm text-gray-600">No comments yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {pageComments.map((c) => (
+            <div key={c._id || c.id} className="rounded border border-gray-200 bg-gray-50 p-2">
+              <div className="text-xs text-gray-500 flex items-center justify-between">
+                <span>{c.author || 'Anonymous'}</span>
+                {/* timestamp might already be a Date per your fetchComments() */}
+                <span>
+                  {c.timestamp instanceof Date
+                    ? c.timestamp.toLocaleString()
+                    : new Date(c.timestamp as any).toLocaleString()}
+                </span>
+              </div>
+              <div className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
+
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  className="text-xs text-blue-700"
+                  onClick={() => {
+                    setComposerMode('edit');
+                    setComposerPage(c.page);
+                    setCommentTargetPage(c.page);
+                    setEditCommentId(c._id || c.id || null);
+                    setComposerInitialText(c.text || '');
+                    setComposerOpen(true);
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
   <div className="text-center text-xs text-gray-700">
     {mobileZoomed ? 'Drag to move (pinch to zoom, Fit to reset)' : 'Swipe to change slides'}
   </div>
