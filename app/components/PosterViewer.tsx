@@ -105,8 +105,37 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
     // padding + border safety
     return Math.max(320, Math.floor(w - 16));
   }, [mobileMeasure.rect.width]);
+//swipe handlers
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
 
-
+  function onSwipeStart(e: React.TouchEvent) {
+    if (e.touches.length !== 1) return; // ignore pinch
+    const t = e.touches[0];
+    swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }
+  
+  function onSwipeEnd(e: React.TouchEvent) {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start) return;
+  
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const dt = Date.now() - start.t;
+  
+    if (dt > 800) return; // too slow
+    if (Math.abs(dx) < 60) return; // not far enough
+    if (Math.abs(dx) < Math.abs(dy) * 1.2) return; // mostly vertical
+  
+    if (dx < 0) {
+      // swipe left => next
+      setPageNumber((p) => Math.min(numPages || p, p + 1));
+    } else {
+      // swipe right => prev
+      setPageNumber((p) => Math.max(1, p - 1));
+    }
+  }
 
 
   // Configure pdf.js worker
@@ -225,7 +254,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   }
 
 
-  
+
 
   // Zoomable page (used for SMALL SCREENS only, and only on the current slide to keep it light)
   const ZoomablePage = ({
@@ -252,16 +281,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       >
         {() => (
           <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
-            <div className="w-full flex justify-center">
 
-              <Page
-                pageNumber={page}
-                width={width}
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-                className="mx-auto"
-              />
-            </div>
           </TransformComponent>
         )}
       </TransformWrapper>
@@ -400,49 +420,76 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               <div className="truncate text-xs text-gray-700">{poster.author ? `by ${poster.author}` : ''}</div>
             </div>
 
-            <button onClick={handleDelete} className="bg-red-600 text-white px-3 py-2 rounded text-sm">
-              Delete
-            </button>
+            <button
+  onClick={handleDelete}
+  className="hidden lg:inline-block bg-red-600 text-white px-3 py-2 rounded text-sm"
+>
+  Delete
+</button>
           </div>
         </div>
-          {/* MOBILE */}
-          <div className="block lg:hidden px-3 py-4 space-y-4">
-
-
-
-            <div ref={mobileMeasure.ref} className="bg-white rounded-lg border p-2">
-              <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-                <Page
-                  pageNumber={pageNumber}
-                  width={mobilePageWidth}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                />
-              </div>
+        {/* MOBILE */}
+        <div className="block lg:hidden px-3 py-4 space-y-3">
+          {/* Header row */}
+          <div className="flex items-center justify-between w-full">
+            <div className="text-sm font-medium text-gray-900">
+              Slide {pageNumber} / {numPages || '?'}
             </div>
 
-            <div className="flex justify-between">
-              <button
-                disabled={pageNumber <= 1}
-                onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-                className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-              >
-                Prev
-              </button>
+            <button
+              onClick={() => {
+               
+                setComposerMode('add');
+                setComposerPage(pageNumber);
+                setCommentTargetPage(pageNumber);
+                setComposerInitialText('');
+                setEditCommentId(null);
+                setComposerOpen(true);
+              }}
+              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
+            >
+              Comment
+            </button>
+          </div>
 
-              <button
-                disabled={pageNumber >= numPages}
-                onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
-                className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-              >
-                Next
-              </button>
+          {/* Viewer (swipe here) */}
+          <div
+            ref={mobileMeasure.ref}
+            className="w-full bg-white rounded-lg border p-2"
+            onTouchStart={onSwipeStart}
+            onTouchEnd={onSwipeEnd}
+          >
+            <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+              <Page
+                pageNumber={pageNumber}
+                width={mobilePageWidth}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+              />
             </div>
           </div>
 
-        {/* DESKTOP */}
-        <div
-          className="
+          <div className="text-center text-xs text-gray-700">
+            Swipe to change slides
+          </div>
+        </div>
+
+{/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
+<CommentComposerModal
+          open={composerOpen}
+          mode={composerMode}
+          page={composerPage}
+          numPages={numPages}
+          initialText={composerInitialText}
+          onClose={() => setComposerOpen(false)}
+          onSubmit={async (text) => {
+            await addComment(composerPage, text);
+            setComposerOpen(false);
+          }}
+        />
+      {/* DESKTOP */}
+      <div
+        className="
           hidden lg:grid
           lg:grid-cols-[clamp(190px,20vw,260px)_minmax(0,1fr)_clamp(240px,25vw,320px)]
           lg:gap-3
@@ -451,123 +498,111 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           xl:gap-4 xl:px-4" >
 
 
-          {/* Left nav (virtualized) */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
-            {numPages > 0 ? (
-              <MiniPdfNavigator
-                numPages={numPages}
-                currentPage={pageNumber}
-                onJump={(p) => {
-                  setPageNumber(p);
-                  setCommentTargetPage(p);
-                }}
-              />
-            ) : (
-              <div className="p-4 text-sm text-gray-700">Loading…</div>
-            )}
-          </div>
+        {/* Left nav (virtualized) */}
+        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+          {numPages > 0 ? (
+            <MiniPdfNavigator
+              numPages={numPages}
+              currentPage={pageNumber}
+              onJump={(p) => {
+                setPageNumber(p);
+                setCommentTargetPage(p);
+              }}
+            />
+          ) : (
+            <div className="p-4 text-sm text-gray-700">Loading…</div>
+          )}
+        </div>
 
 
-          {/* DESKTOP Center viewer */}
-          {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
+        {/* DESKTOP Center viewer */}
+        {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
 
-          <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
-            <div
-              className="h-full overflow-x-auto overflow-y-auto"
-              style={{ touchAction: 'pan-y pinch-zoom' }}
-            >
-              <div className="p-3 border-b flex items-center justify-between">
-                <div className="text-sm text-gray-700">
-                  Slide <span className="font-semibold text-gray-700">{pageNumber}</span> of{' '}
-                  <span className="font-semibold text-gray-700">{numPages || '…'}</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={pageNumber <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, pageNumber - 1);
-                      setPageNumber(next);
-                      setCommentTargetPage(next);
-                    }}
-                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-                  >
-                    Prev
-                  </button>
-                  <button
-                    disabled={numPages === 0 || pageNumber >= numPages}
-                    onClick={() => {
-                      const next = Math.min(numPages, pageNumber + 1);
-                      setPageNumber(next);
-                      setCommentTargetPage(next);
-                    }}
-                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-                  >
-                    Next
-                  </button>
-                </div>
+        <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
+          <div
+            className="h-full overflow-x-auto overflow-y-auto"
+            style={{ touchAction: 'pan-y pinch-zoom' }}
+          >
+            <div className="p-3 border-b flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Slide <span className="font-semibold text-gray-700">{pageNumber}</span> of{' '}
+                <span className="font-semibold text-gray-700">{numPages || '…'}</span>
               </div>
 
-              {/* This is the *single* measured box. */}
-              <div className="p-3">
-                <div className="mx-auto w-full">
-                  <div className="w-full flex justify-center">
-                    <Page
-                      pageNumber={pageNumber}
-                      width={centerPageWidth}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      className="mx-auto"
-                    />
-                  </div>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={pageNumber <= 1}
+                  onClick={() => {
+                    const next = Math.max(1, pageNumber - 1);
+                    setPageNumber(next);
+                    setCommentTargetPage(next);
+                  }}
+                  className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                >
+                  Prev
+                </button>
+                <button
+                  disabled={numPages === 0 || pageNumber >= numPages}
+                  onClick={() => {
+                    const next = Math.min(numPages, pageNumber + 1);
+                    setPageNumber(next);
+                    setCommentTargetPage(next);
+                  }}
+                  className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            {/* This is the *single* measured box. */}
+            <div className="p-3">
+              <div className="mx-auto w-full">
+                <div className="w-full flex justify-center">
+                  <Page
+                    pageNumber={pageNumber}
+                    width={centerPageWidth}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    className="mx-auto"
+                  />
                 </div>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Right comments */}
-          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
-            <CommentsPanel
-              page={commentTargetPage}
-              numPages={numPages}
-              loading={loadingComments}
-              comments={pageComments}
-              onOpenAdd={() => {
-                setComposerMode('add');
-                setComposerPage(commentTargetPage);
-                setEditCommentId(null);
-                setComposerInitialText('');
-                setComposerOpen(true);
-              }}
-              onOpenEdit={(c) => {
-                setComposerMode('edit');
-                setComposerPage(c.page);
-                setEditCommentId(c._id || c.id || null);
-                setComposerInitialText(c.text || '');
-                setComposerOpen(true);
-              }}
-            />
-          </div>
-          {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
-          <CommentComposerModal
-            open={composerOpen}
-            mode={composerMode}
-            page={composerPage}
+        {/* Right comments */}
+        <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+          <CommentsPanel
+            page={commentTargetPage}
             numPages={numPages}
-            initialText={composerInitialText}
-            onClose={() => setComposerOpen(false)}
-            onSubmit={async (text) => {
-              await addComment(composerPage, text);
-              setComposerOpen(false);
+            loading={loadingComments}
+            comments={pageComments}
+            onOpenAdd={() => {
+              setComposerMode('add');
+              setComposerPage(commentTargetPage);
+              setEditCommentId(null);
+              setComposerInitialText('');
+              setComposerOpen(true);
+            }}
+            onOpenEdit={(c) => {
+              setComposerMode('edit');
+              setComposerPage(c.page);
+              setEditCommentId(c._id || c.id || null);
+              setComposerInitialText(c.text || '');
+              setComposerOpen(true);
             }}
           />
-
-
-
-
         </div>
+        
+
+
+
+
       </div>
-    </Document>
+    </div>
+    </Document >
 
   );
 }
