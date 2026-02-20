@@ -7,7 +7,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { List } from 'react-window';
 import CommentComposerModal from './CommentComposerModal';
 import CommentsPanel, { type Comment } from './CommentsPanel';
-
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
@@ -116,36 +116,40 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
   // Mobile zoom controls (quick solution)
   const [mobileScale, setMobileScale] = useState(1);
-
-  // Swipe handlers
-  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const zoomRef = useRef<any>(null);
+const [mobileZoomed, setMobileZoomed] = useState(false);
+const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
 
   function onSwipeStart(e: React.TouchEvent) {
-    if (e.touches.length !== 1) return; // ignore pinch
+    if (mobileZoomed) return; // <-- zoomed: panning only, no slide nav
+    if (e.touches.length !== 1) return;
     const t = e.touches[0];
     swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
   }
-
+  
   function onSwipeEnd(e: React.TouchEvent) {
+    if (mobileZoomed) return; // <-- zoomed: panning only, no slide nav
     const start = swipeStart.current;
     swipeStart.current = null;
     if (!start) return;
-
+  
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
     const dt = Date.now() - start.t;
-
-    if (dt > 800) return; // too slow
-    if (Math.abs(dx) < 60) return; // not far enough
-    if (Math.abs(dx) < Math.abs(dy) * 1.2) return; // mostly vertical
-
+  
+    if (dt > 800) return;
+    if (Math.abs(dx) < 60) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+  
     if (dx < 0) {
-      setPageNumber((p) => Math.min(numPages || p, p + 1));
-      setCommentTargetPage((p) => Math.min(numPages || p, p + 1));
+      const next = Math.min(numPages || pageNumber, pageNumber + 1);
+      setPageNumber(next);
+      setCommentTargetPage(next);
     } else {
-      setPageNumber((p) => Math.max(1, p - 1));
-      setCommentTargetPage((p) => Math.max(1, p - 1));
+      const prev = Math.max(1, pageNumber - 1);
+      setPageNumber(prev);
+      setCommentTargetPage(prev);
     }
   }
 
@@ -396,83 +400,86 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
         </div>
 
         {/* MOBILE */}
-        <div className="block lg:hidden px-3 py-4 space-y-3">
-          {/* Header row */}
-          <div className="flex items-center justify-between w-full">
-            <div className="text-sm font-medium text-gray-900">
-              Slide {pageNumber} / {numPages || '?'}
-            </div>
+<div className="block lg:hidden px-3 py-4 space-y-3">
+  {/* Header row */}
+  <div className="flex items-center justify-between w-full">
+    <div className="text-sm font-medium text-gray-900">
+      Slide {pageNumber} / {numPages || '?'}
+    </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMobileScale(1)}
-                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
-                title="Fit"
-              >
-                Fit
-              </button>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          zoomRef.current?.resetTransform?.();
+          setMobileZoomed(false);
+        }}
+        className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+        title="Fit"
+      >
+        Fit
+      </button>
 
-              <button
-                type="button"
-                onClick={() => setMobileScale((s) => Math.max(0.6, +(s - 0.1).toFixed(2)))}
-                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
-                aria-label="Zoom out"
-                title="Zoom out"
-              >
-                −
-              </button>
+      <button
+        onClick={() => {
+          // ensure UI isn't zoomed; zoom applies only to slide anyway, but reset is nice
+          zoomRef.current?.resetTransform?.();
+          setMobileZoomed(false);
 
-              <div className="text-xs text-gray-700 w-12 text-center tabular-nums">{Math.round(mobileScale * 100)}%</div>
+          setComposerMode('add');
+          setComposerPage(pageNumber);
+          setCommentTargetPage(pageNumber);
+          setComposerInitialText('');
+          setEditCommentId(null);
+          setComposerOpen(true);
+        }}
+        className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
+      >
+        Comment
+      </button>
+    </div>
+  </div>
 
-              <button
-                type="button"
-                onClick={() => setMobileScale((s) => Math.min(2.5, +(s + 0.1).toFixed(2)))}
-                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
-                aria-label="Zoom in"
-                title="Zoom in"
-              >
-                +
-              </button>
-
-              <button
-                onClick={() => {
-                  setComposerMode('add');
-                  setComposerPage(pageNumber);
-                  setCommentTargetPage(pageNumber);
-                  setComposerInitialText('');
-                  setEditCommentId(null);
-                  setComposerOpen(true);
-                }}
-                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
-              >
-                Comment
-              </button>
-            </div>
-          </div>
-
-          {/* Viewer (swipe here) */}
-          <div
-            ref={mobileMeasure.ref}
-            className={`w-full bg-white rounded-lg border p-2 max-w-full ${
-              isLandscape ? 'h-[calc(100dvh-140px)] overflow-hidden' : ''
-            }`}
-            onTouchStart={onSwipeStart}
-            onTouchEnd={onSwipeEnd}
-          >
-            <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-              <Page
-                key={`${pageNumber}-${mobileRenderWidth}`}
-                pageNumber={pageNumber}
-                width={mobileRenderWidth}
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-              />
-            </div>
-          </div>
-
-          <div className="text-center text-xs text-gray-700">Swipe to change slides</div>
+  {/* Viewer */}
+  <div
+    ref={mobileMeasure.ref}
+    className={`w-full bg-white rounded-lg border p-2 max-w-full ${
+      isLandscape ? 'h-[calc(100dvh-140px)] overflow-hidden' : ''
+    }`}
+    onTouchStart={onSwipeStart}
+    onTouchEnd={onSwipeEnd}
+  >
+    <TransformWrapper
+      ref={zoomRef}
+      minScale={1}
+      maxScale={4}
+      initialScale={1}
+      wheel={{ disabled: true }}
+      doubleClick={{ mode: 'reset' }}
+      panning={{ velocityDisabled: true }}
+      onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+      onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+      onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+    >
+      <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+        {/* Critical: stop browser-level pinch zoom */}
+        <div style={{ touchAction: 'none' }} className="w-full flex justify-center">
+          <Page
+            key={`${pageNumber}-${mobilePageWidth}`}
+            pageNumber={pageNumber}
+            width={mobilePageWidth}
+            renderTextLayer={false}
+            renderAnnotationLayer={false}
+          />
         </div>
+      </TransformComponent>
+    </TransformWrapper>
+  </div>
+
+  <div className="text-center text-xs text-gray-700">
+    {mobileZoomed ? 'Drag to move (pinch to zoom, Fit to reset)' : 'Swipe to change slides'}
+  </div>
+</div>
 
         {/* Modal composer */}
         <CommentComposerModal
