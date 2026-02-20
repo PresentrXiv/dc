@@ -96,10 +96,15 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
 
 
-  // Track mobile scrolling (current page)
-  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const observerRef = useRef<IntersectionObserver | null>(null);
 
+  // Mobile measurement (independent of desktop center column)
+  const mobileMeasure = useMeasure<HTMLDivElement>();
+
+  const mobilePageWidth = useMemo(() => {
+    const w = mobileMeasure.rect.width || 0;
+    // padding + border safety
+    return Math.max(320, Math.floor(w - 16));
+  }, [mobileMeasure.rect.width]);
 
 
 
@@ -220,33 +225,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   }
 
 
-  // Mobile: observe pages to keep current slide
-  useEffect(() => {
-    if (isLargeScreen) return;
-    if (!numPages) return;
-
-    observerRef.current?.disconnect();
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))[0];
-        if (!visible) return;
-
-        const page = Number((visible.target as HTMLElement).dataset.page || '1');
-        if (page && page !== pageNumber) setPageNumber(page);
-      },
-      { threshold: [0.55, 0.7, 0.85] }
-    );
-
-    for (let i = 1; i <= numPages; i++) {
-      const el = pageRefs.current[i];
-      if (el) observerRef.current.observe(el);
-    }
-
-    return () => observerRef.current?.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLargeScreen, numPages]);
+  
 
   // Zoomable page (used for SMALL SCREENS only, and only on the current slide to keep it light)
   const ZoomablePage = ({
@@ -274,7 +253,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
         {() => (
           <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
             <div className="w-full flex justify-center">
-              
+
               <Page
                 pageNumber={page}
                 width={width}
@@ -400,11 +379,11 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
-      {composerOpen && (
-        <div className="fixed bottom-4 left-4 z-[200] rounded bg-black text-white px-3 py-2 text-sm">
-          composerOpen = true
-        </div>
-      )}
+        {composerOpen && (
+          <div className="fixed bottom-4 left-4 z-[200] rounded bg-black text-white px-3 py-2 text-sm">
+            composerOpen = true
+          </div>
+        )}
 
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-white border-b">
@@ -414,9 +393,9 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </Link>
 
             <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-semibold text-gray-900">
-  {poster.title || 'Untitled'}
-</div>
+              <div className="truncate text-base font-semibold text-gray-900">
+                {poster.title || 'Untitled'}
+              </div>
 
               <div className="truncate text-xs text-gray-700">{poster.author ? `by ${poster.author}` : ''}</div>
             </div>
@@ -426,6 +405,40 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             </button>
           </div>
         </div>
+          {/* MOBILE */}
+          <div className="block lg:hidden px-3 py-4 space-y-4">
+
+
+
+            <div ref={mobileMeasure.ref} className="bg-white rounded-lg border p-2">
+              <div style={{ touchAction: 'pan-y pinch-zoom' }}>
+                <Page
+                  pageNumber={pageNumber}
+                  width={mobilePageWidth}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-between">
+              <button
+                disabled={pageNumber <= 1}
+                onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+              >
+                Prev
+              </button>
+
+              <button
+                disabled={pageNumber >= numPages}
+                onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+              >
+                Next
+              </button>
+            </div>
+          </div>
 
         {/* DESKTOP */}
         <div
@@ -435,8 +448,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           lg:gap-3
           lg:max-w-none lg:mx-auto lg:px-4 lg:py-4
           xl:grid-cols-[clamp(220px,20vw,280px)_minmax(0,1fr)_clamp(280px,25vw,340px)]
-          xl:gap-4 xl:px-4"
-        >
+          xl:gap-4 xl:px-4" >
 
 
           {/* Left nav (virtualized) */}
@@ -455,12 +467,10 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             )}
           </div>
 
-          {/* DESKTOP Center viewer */}
-          {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
 
           {/* DESKTOP Center viewer */}
           {/* IMPORTANT: do NOT overflow-hidden this container, it causes both-side clipping */}
-          
+
           <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
             <div
               className="h-full overflow-x-auto overflow-y-auto"
@@ -538,75 +548,26 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
               }}
             />
           </div>
-            {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
-            <CommentComposerModal
-              open={composerOpen}
-              mode={composerMode}
-              page={composerPage}
-              numPages={numPages}
-              initialText={composerInitialText}
-              onClose={() => setComposerOpen(false)}
-              onSubmit={async (text) => {
-                await addComment(composerPage, text);
-                setComposerOpen(false);
-              }}
-            />
+          {/* Modal composer (sibling of DESKTOP + MOBILE, inside min-h-screen) */}
+          <CommentComposerModal
+            open={composerOpen}
+            mode={composerMode}
+            page={composerPage}
+            numPages={numPages}
+            initialText={composerInitialText}
+            onClose={() => setComposerOpen(false)}
+            onSubmit={async (text) => {
+              await addComment(composerPage, text);
+              setComposerOpen(false);
+            }}
+          />
 
-{/* MOBILE */}
-<div className="block lg:hidden px-3 py-4 space-y-4">
 
-  {/* Slide header */}
-  <div className="flex items-center justify-between">
-    <div className="text-sm font-medium text-gray-900">
-      Slide {pageNumber} / {numPages || '?'}
-    </div>
-
-    <button
-      onClick={() => {
-        setComposerMode('add');
-        setComposerPage(pageNumber);
-        setComposerInitialText('');
-        setEditCommentId(null);
-        setComposerOpen(true);
-      }}
-      className="text-sm font-medium text-gray-800"
-    >
-      Comments
-    </button>
-  </div>
-
-  {/* Slide viewer */}
-  <div className="bg-white rounded-lg border p-2">
-    <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-      {/* Your PDF <Page /> component here */}
-    </div>
-  </div>
-
-  {/* Navigation */}
-  <div className="flex justify-between">
-    <button
-      disabled={pageNumber <= 1}
-      onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
-      className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-    >
-      Prev
-    </button>
-
-    <button
-      disabled={pageNumber >= numPages}
-      onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
-      className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
-    >
-      Next
-    </button>
-  </div>
-
-</div>
 
 
         </div>
       </div>
     </Document>
-      
-        );
+
+  );
 }
