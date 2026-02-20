@@ -117,8 +117,8 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   // Mobile zoom controls (quick solution)
   const [mobileScale, setMobileScale] = useState(1);
   const zoomRef = useRef<any>(null);
-const [mobileZoomed, setMobileZoomed] = useState(false);
-const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const [mobileZoomed, setMobileZoomed] = useState(false);
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
 
   function onSwipeStart(e: React.TouchEvent) {
     if (mobileZoomed) return; // <-- zoomed: panning only, no slide nav
@@ -126,22 +126,22 @@ const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
     const t = e.touches[0];
     swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
   }
-  
+
   function onSwipeEnd(e: React.TouchEvent) {
     if (mobileZoomed) return; // <-- zoomed: panning only, no slide nav
     const start = swipeStart.current;
     swipeStart.current = null;
     if (!start) return;
-  
+
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
     const dt = Date.now() - start.t;
-  
+
     if (dt > 800) return;
     if (Math.abs(dx) < 60) return;
     if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
-  
+
     if (dx < 0) {
       const next = Math.min(numPages || pageNumber, pageNumber + 1);
       setPageNumber(next);
@@ -381,174 +381,187 @@ const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
-        {/* Top bar */}
-        <div className="sticky top-0 z-40 bg-white border-b">
-          <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
-            <Link href="/" className="text-blue-600 text-sm">
-              ← Back
-            </Link>
+       {/* Top bar */}
+<div className="sticky top-0 z-40 bg-white border-b">
+  <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
+    
+    {/* Left: Back + Title */}
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      <Link href="/" className="text-blue-600 text-sm whitespace-nowrap">
+        ← Back
+      </Link>
 
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-base font-semibold text-gray-900">{poster.title || 'Untitled'}</div>
-              <div className="truncate text-xs text-gray-700">{poster.author ? `by ${poster.author}` : ''}</div>
-            </div>
-
-            <button onClick={handleDelete} className="hidden lg:inline-block bg-red-600 text-white px-3 py-2 rounded text-sm">
-              Delete
-            </button>
-          </div>
+      <div className="min-w-0">
+        <div className="truncate text-base font-semibold text-gray-900">
+          {poster.title || 'Untitled'}
         </div>
-
-        {/* MOBILE */}
-<div className="block lg:hidden px-3 py-4 space-y-3">
-  {/* Header row */}
-  <div className="flex items-center justify-between w-full">
-    <div className="text-sm font-medium text-gray-900">
-      Slide {pageNumber} / {numPages || '?'}
-    </div>
-
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          zoomRef.current?.resetTransform?.();
-          setMobileZoomed(false);
-        }}
-        className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
-        title="Fit"
-      >
-        Fit
-      </button>
-
-      <button
-        onClick={() => {
-          // ensure UI isn't zoomed; zoom applies only to slide anyway, but reset is nice
-          zoomRef.current?.resetTransform?.();
-          setMobileZoomed(false);
-
-          setComposerMode('add');
-          setComposerPage(pageNumber);
-          setCommentTargetPage(pageNumber);
-          setComposerInitialText('');
-          setEditCommentId(null);
-          setComposerOpen(true);
-        }}
-        className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
-      >
-        Comment
-      </button>
-    </div>
-  </div>
-
-  {/* Viewer */}
-  <div
-    ref={mobileMeasure.ref}
-    className={`w-full bg-white rounded-lg border p-2 max-w-full ${
-      isLandscape ? 'h-[calc(100dvh-140px)] overflow-hidden' : ''
-    }`}
-    onTouchStart={onSwipeStart}
-    onTouchEnd={onSwipeEnd}
-  >
-    <TransformWrapper
-      ref={zoomRef}
-      minScale={1}
-      maxScale={4}
-      initialScale={1}
-      wheel={{ disabled: true }}
-      doubleClick={{ mode: 'reset' }}
-     // - not zoomed => disable panning so swipe handlers can run
-  // - zoomed => enable panning so swipe drags the image
-  panning={{ disabled: !mobileZoomed, velocityDisabled: true }}
-
-  onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
-  onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
-  onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
->
-      <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
-        {/* Critical: stop browser-level pinch zoom */}
-        <div style={{ touchAction: 'none' }} className="w-full flex justify-center">
-          <Page
-            key={`${pageNumber}-${mobilePageWidth}`}
-            pageNumber={pageNumber}
-            width={mobilePageWidth}
-            renderTextLayer={false}
-            renderAnnotationLayer={false}
-          />
+        <div className="truncate text-xs text-gray-700">
+          {poster.author ? `by ${poster.author}` : ''}
         </div>
-      </TransformComponent>
-    </TransformWrapper>
-  </div>
-{/* Comments (mobile portrait only) */}
-{!isLandscape && (
-  <div className="bg-white rounded-lg border">
-    <div className="flex items-center justify-between px-3 py-2 border-b">
-      <div className="text-sm font-semibold text-gray-800">
-        Comments <span className="text-gray-500 font-normal">({pageComments.length})</span>
       </div>
-
-      <button
-        type="button"
-        onClick={() => {
-          setComposerMode('add');
-          setComposerPage(pageNumber);
-          setCommentTargetPage(pageNumber);
-          setEditCommentId(null);
-          setComposerInitialText('');
-          setComposerOpen(true);
-        }}
-        className="px-2 py-1.5 rounded bg-blue-600 text-white text-sm"
-      >
-        Add
-      </button>
     </div>
 
-    <div className="max-h-[35dvh] overflow-y-auto px-3 py-2">
-      {loadingComments ? (
-        <div className="text-sm text-gray-600">Loading…</div>
-      ) : pageComments.length === 0 ? (
-        <div className="text-sm text-gray-600">No comments yet.</div>
-      ) : (
-        <div className="space-y-2">
-          {pageComments.map((c) => (
-            <div key={c._id || c.id} className="rounded border border-gray-200 bg-gray-50 p-2">
-              <div className="text-xs text-gray-500 flex items-center justify-between">
-                <span>{c.author || 'Anonymous'}</span>
-                {/* timestamp might already be a Date per your fetchComments() */}
-                <span>
-                  {c.timestamp instanceof Date
-                    ? c.timestamp.toLocaleString()
-                    : new Date(c.timestamp as any).toLocaleString()}
-                </span>
-              </div>
-              <div className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
+    {/* Right: Logo */}
+    <Link href="/" className="shrink-0">
+      <img
+        src="/presentrxiv-logo.png"
+        alt="PresentrXiv"
+        className="h-10 w-auto"
+      />
+    </Link>
 
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  className="text-xs text-blue-700"
-                  onClick={() => {
-                    setComposerMode('edit');
-                    setComposerPage(c.page);
-                    setCommentTargetPage(c.page);
-                    setEditCommentId(c._id || c.id || null);
-                    setComposerInitialText(c.text || '');
-                    setComposerOpen(true);
-                  }}
-                >
-                  Edit
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  </div>
-)}
-  <div className="text-center text-xs text-gray-700">
-    {mobileZoomed ? 'Drag to move (pinch to zoom, Fit to reset)' : 'Swipe to change slides'}
   </div>
 </div>
+
+        {/* MOBILE */}
+        <div className="block lg:hidden px-3 py-4 space-y-3">
+          {/* Header row */}
+          <div className="flex items-center justify-between w-full">
+            <div className="text-sm font-medium text-gray-900">
+              Slide {pageNumber} / {numPages || '?'}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  zoomRef.current?.resetTransform?.();
+                  setMobileZoomed(false);
+                }}
+                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+                title="Fit"
+              >
+                Fit
+              </button>
+
+              <button
+                onClick={() => {
+                  // ensure UI isn't zoomed; zoom applies only to slide anyway, but reset is nice
+                  zoomRef.current?.resetTransform?.();
+                  setMobileZoomed(false);
+
+                  setComposerMode('add');
+                  setComposerPage(pageNumber);
+                  setCommentTargetPage(pageNumber);
+                  setComposerInitialText('');
+                  setEditCommentId(null);
+                  setComposerOpen(true);
+                }}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
+              >
+                Comment
+              </button>
+            </div>
+          </div>
+
+          {/* Viewer */}
+          <div
+            ref={mobileMeasure.ref}
+            className={`w-full bg-white rounded-lg border p-2 max-w-full ${isLandscape ? 'h-[calc(100dvh-140px)] overflow-hidden' : ''
+              }`}
+            onTouchStart={onSwipeStart}
+            onTouchEnd={onSwipeEnd}
+          >
+            <TransformWrapper
+              ref={zoomRef}
+              minScale={1}
+              maxScale={4}
+              initialScale={1}
+              wheel={{ disabled: true }}
+              doubleClick={{ mode: 'reset' }}
+              // - not zoomed => disable panning so swipe handlers can run
+              // - zoomed => enable panning so swipe drags the image
+              panning={{ disabled: !mobileZoomed, velocityDisabled: true }}
+
+              onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+              onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+              onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+            >
+              <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+                {/* Critical: stop browser-level pinch zoom */}
+                <div style={{ touchAction: 'none' }} className="w-full flex justify-center">
+                  <Page
+                    key={`${pageNumber}-${mobilePageWidth}`}
+                    pageNumber={pageNumber}
+                    width={mobilePageWidth}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                  />
+                </div>
+              </TransformComponent>
+            </TransformWrapper>
+          </div>
+          {/* Comments (mobile portrait only) */}
+          {!isLandscape && (
+            <div className="bg-white rounded-lg border">
+              <div className="flex items-center justify-between px-3 py-2 border-b">
+                <div className="text-sm font-semibold text-gray-800">
+                  Comments <span className="text-gray-500 font-normal">({pageComments.length})</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposerMode('add');
+                    setComposerPage(pageNumber);
+                    setCommentTargetPage(pageNumber);
+                    setEditCommentId(null);
+                    setComposerInitialText('');
+                    setComposerOpen(true);
+                  }}
+                  className="px-2 py-1.5 rounded bg-blue-600 text-white text-sm"
+                >
+                  Add
+                </button>
+              </div>
+
+              <div className="max-h-[35dvh] overflow-y-auto px-3 py-2">
+                {loadingComments ? (
+                  <div className="text-sm text-gray-600">Loading…</div>
+                ) : pageComments.length === 0 ? (
+                  <div className="text-sm text-gray-600">No comments yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {pageComments.map((c) => (
+                      <div key={c._id || c.id} className="rounded border border-gray-200 bg-gray-50 p-2">
+                        <div className="text-xs text-gray-500 flex items-center justify-between">
+                          <span>{c.author || 'Anonymous'}</span>
+                          {/* timestamp might already be a Date per your fetchComments() */}
+                          <span>
+                            {c.timestamp instanceof Date
+                              ? c.timestamp.toLocaleString()
+                              : new Date(c.timestamp as any).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
+
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            className="text-xs text-blue-700"
+                            onClick={() => {
+                              setComposerMode('edit');
+                              setComposerPage(c.page);
+                              setCommentTargetPage(c.page);
+                              setEditCommentId(c._id || c.id || null);
+                              setComposerInitialText(c.text || '');
+                              setComposerOpen(true);
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="text-center text-xs text-gray-700">
+            {mobileZoomed ? 'Drag to move (pinch to zoom, Fit to reset)' : 'Swipe to change slides'}
+          </div>
+        </div>
 
         {/* Modal composer */}
         <CommentComposerModal
@@ -664,6 +677,17 @@ const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
                 setComposerOpen(true);
               }}
             />
+          </div>
+          {/* Bottom Danger Zone */}
+          <div className="border-t mt-12 pt-6">
+            <div className="max-w-6xl mx-auto px-4 flex justify-end">
+              <button
+                onClick={handleDelete}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition"
+              >
+                Delete Presentation
+              </button>
+            </div>
           </div>
         </div>
       </div>
