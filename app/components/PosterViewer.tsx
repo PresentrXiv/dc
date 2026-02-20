@@ -109,7 +109,7 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
 
   // Mobile measurement (independent of desktop center column)
   const mobileMeasure = useResponsiveWidth<HTMLDivElement>();
-
+  const [mobileScale, setMobileScale] = useState(1);
   const mobilePageWidth = useMemo(() => {
     const w = mobileMeasure.width || 0;
     return Math.max(0, Math.floor(w - 16));
@@ -484,16 +484,44 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           </div>
         </div>
         {/* MOBILE */}
-        <div className="block lg:hidden px-3 py-4 space-y-3">
+        <div className="w-full max-w-full overflow-hidden bg-white rounded-lg border p-2">
           {/* Header row */}
-          <div className="flex items-center justify-between w-full">
-            <div className="text-sm font-medium text-gray-900">
-              Slide {pageNumber} / {numPages || '?'}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileScale(1)}
+              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
+              title="Fit"
+            >
+              Fit
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMobileScale((s) => Math.max(0.6, +(s - 0.1).toFixed(2)))}
+              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −
+            </button>
+
+            <div className="text-xs text-gray-700 w-12 text-center tabular-nums">
+              {Math.round(mobileScale * 100)}%
             </div>
 
             <button
-              onClick={() => {
+              type="button"
+              onClick={() => setMobileScale((s) => Math.min(2.5, +(s + 0.1).toFixed(2)))}
+              className="px-2 py-1.5 rounded border bg-white text-sm text-gray-600"
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +
+            </button>
 
+            <button
+              onClick={() => {
                 setComposerMode('add');
                 setComposerPage(pageNumber);
                 setCommentTargetPage(pageNumber);
@@ -515,13 +543,13 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
             onTouchEnd={onSwipeEnd}
           >
             <div style={{ touchAction: 'pan-y pinch-zoom' }}>
-              <Page
-                key={`${pageNumber}-${mobilePageWidth}`}
-                pageNumber={pageNumber}
-                width={mobilePageWidth}
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-              />
+            <Page
+  key={`${pageNumber}-${mobilePageWidth}-${mobileScale}`}
+  pageNumber={pageNumber}
+  width={Math.floor(mobilePageWidth * mobileScale)}
+  renderTextLayer={false}
+  renderAnnotationLayer={false}
+/>
             </div>
           </div>
 
