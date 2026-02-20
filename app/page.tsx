@@ -55,10 +55,10 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-500">
+    <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-4 md:p-8 max-w-6xl">
         <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl md:text-4xl font-bold"> 
+        <h1 className="text-3xl md:text-4xl font-bold text-gray-500"> 
         Conference Presentations </h1>
 
           <Link
@@ -67,6 +67,14 @@ export default function HomePage() {
           >
             + Upload Presentation
           </Link>
+          <Link href="/" className="shrink-0">
+      <img
+        src="/presentrxiv-logo.png"
+        alt="PresentrXiv"
+        className="h-10 w-auto"
+      />
+    </Link>
+
         </div>
 
         {loading ? (
@@ -83,6 +91,7 @@ export default function HomePage() {
               Upload the First One
             </Link>
           </div>
+          
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {posters.map((poster) => (
