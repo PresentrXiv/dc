@@ -12,10 +12,10 @@ export type Comment = {
   timestamp: Date;
 };
 
-
 function getId(c: Comment) {
   return c._id || c.id || `${c.posterId}-${c.page}-${c.timestamp.toISOString()}`;
 }
+
 type CommentsPanelProps = {
   compactHeader?: boolean;
   page: number;
@@ -23,9 +23,8 @@ type CommentsPanelProps = {
   loading: boolean;
   comments: Comment[];
   onOpenAdd: () => void;
-  onOpenEdit: (c: Comment) => void;
+  onDelete: (c: Comment) => void; // <-- NEW
 };
-
 
 export default function CommentsPanel({
   compactHeader,
@@ -34,10 +33,8 @@ export default function CommentsPanel({
   loading,
   comments,
   onOpenAdd,
-  onOpenEdit,
+  onDelete,
 }: CommentsPanelProps) {
-
-
   return (
     <div className="h-full flex flex-col">
       <div className={compactHeader ? 'px-3 py-2 border-b' : 'px-4 py-3 border-b'}>
@@ -49,15 +46,11 @@ export default function CommentsPanel({
           </div>
 
           <button
-  onClick={onOpenAdd}
-
+            onClick={onOpenAdd}
             className="shrink-0 rounded bg-blue-600 text-white text-sm px-3 py-1.5 hover:bg-blue-700"
           >
             Comment
           </button>
-
-
-
         </div>
       </div>
 
@@ -76,10 +69,11 @@ export default function CommentsPanel({
                   </div>
 
                   <button
-                    onClick={() => onOpenEdit(c)}
-                    className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
+                    onClick={() => onDelete(c)}
+                    className="text-xs px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50"
+                    title="Delete comment"
                   >
-                    Edit
+                    Delete
                   </button>
                 </div>
               </div>
@@ -89,8 +83,6 @@ export default function CommentsPanel({
           <div className="text-sm text-gray-700">No comments on this slide yet.</div>
         )}
       </div>
-
-      
     </div>
   );
 }

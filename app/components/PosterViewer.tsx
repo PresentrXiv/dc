@@ -381,37 +381,37 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
   return (
     <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
       <div className="min-h-screen bg-gray-50">
-       {/* Top bar */}
-<div className="sticky top-0 z-40 bg-white border-b">
-  <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
-    
-    {/* Left: Back + Title */}
-    <div className="flex items-center gap-3 min-w-0 flex-1">
-      <Link href="/" className="text-blue-600 text-sm whitespace-nowrap">
-        ← Back
-      </Link>
+        {/* Top bar */}
+        <div className="sticky top-0 z-40 bg-white border-b">
+          <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
 
-      <div className="min-w-0">
-        <div className="truncate text-base font-semibold text-gray-900">
-          {poster.title || 'Untitled'}
+            {/* Left: Back + Title */}
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <Link href="/" className="text-blue-600 text-sm whitespace-nowrap">
+                ← Back
+              </Link>
+
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold text-gray-900">
+                  {poster.title || 'Untitled'}
+                </div>
+                <div className="truncate text-xs text-gray-700">
+                  {poster.author ? `by ${poster.author}` : ''}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Logo */}
+            <Link href="/" className="shrink-0">
+              <img
+                src="/presentrxiv-logo.png"
+                alt="PresentrXiv"
+                className="h-10 w-auto"
+              />
+            </Link>
+
+          </div>
         </div>
-        <div className="truncate text-xs text-gray-700">
-          {poster.author ? `by ${poster.author}` : ''}
-        </div>
-      </div>
-    </div>
-
-    {/* Right: Logo */}
-    <Link href="/" className="shrink-0">
-      <img
-        src="/presentrxiv-logo.png"
-        alt="PresentrXiv"
-        className="h-10 w-auto"
-      />
-    </Link>
-
-  </div>
-</div>
 
         {/* MOBILE */}
         <div className="block lg:hidden px-3 py-4 space-y-3">
@@ -538,17 +538,30 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                         <div className="mt-2 flex justify-end">
                           <button
                             type="button"
-                            className="text-xs text-blue-700"
-                            onClick={() => {
-                              setComposerMode('edit');
-                              setComposerPage(c.page);
-                              setCommentTargetPage(c.page);
-                              setEditCommentId(c._id || c.id || null);
-                              setComposerInitialText(c.text || '');
-                              setComposerOpen(true);
+                            className="text-xs text-red-700"
+                            onClick={async () => {
+                              const id = c._id || c.id;
+                              if (!id) return;
+                              if (!confirm('Delete this comment?')) return;
+                            
+                              try {
+                                const res = await fetch(`/api/comments?id=${encodeURIComponent(id)}`, {
+                                  method: 'DELETE',
+                                });
+                            
+                                if (!res.ok) {
+                                  alert('Failed to delete comment.');
+                                  return;
+                                }
+                            
+                                await fetchComments(); // ✅ refresh from Mongo
+                              } catch (err) {
+                                console.error('Delete failed:', err);
+                                alert('Delete failed.');
+                              }
                             }}
                           >
-                            Edit
+                            Delete
                           </button>
                         </div>
                       </div>
