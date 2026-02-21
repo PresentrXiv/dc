@@ -211,7 +211,25 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
       setLoadingComments(false);
     }
   }
+  async function handleDeleteComment(c: { _id?: string; id?: string }) {
+    const id = c._id || c.id;
+    if (!id) return;
+    if (!confirm('Delete this comment?')) return;
 
+    try {
+      const res = await fetch(`/api/comments?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        alert('Failed to delete comment.');
+        return;
+      }
+      await fetchComments();
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Delete failed.');
+    }
+  }
   async function handleDelete() {
     if (!confirm('Delete this presentation?')) return;
 
@@ -543,17 +561,17 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
                               const id = c._id || c.id;
                               if (!id) return;
                               if (!confirm('Delete this comment?')) return;
-                            
+
                               try {
                                 const res = await fetch(`/api/comments?id=${encodeURIComponent(id)}`, {
                                   method: 'DELETE',
                                 });
-                            
+
                                 if (!res.ok) {
                                   alert('Failed to delete comment.');
                                   return;
                                 }
-                            
+
                                 await fetchComments(); // ✅ refresh from Mongo
                               } catch (err) {
                                 console.error('Delete failed:', err);
@@ -671,24 +689,19 @@ export default function PosterViewer({ posterId }: { posterId: string }) {
           {/* Right comments */}
           <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
             <CommentsPanel
-              page={commentTargetPage}
-              numPages={numPages}
+              page={pageNumber}
+              numPages={numPages || 0}
               loading={loadingComments}
               comments={pageComments}
               onOpenAdd={() => {
                 setComposerMode('add');
-                setComposerPage(commentTargetPage);
-                setEditCommentId(null);
+                setComposerPage(pageNumber);
+                setCommentTargetPage(pageNumber);
                 setComposerInitialText('');
+                setEditCommentId(null);
                 setComposerOpen(true);
               }}
-              onOpenEdit={(c) => {
-                setComposerMode('edit');
-                setComposerPage(c.page);
-                setEditCommentId(c._id || c.id || null);
-                setComposerInitialText(c.text || '');
-                setComposerOpen(true);
-              }}
+              onDelete={handleDeleteComment}
             />
           </div>
           {/* Bottom Danger Zone */}
