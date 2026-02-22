@@ -1,249 +1,670 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Document, Page, pdfjs } from 'react-pdf';
+import { List } from 'react-window';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+
+import CommentComposerModal from './CommentComposerModal';
+import CommentsPanel, { type Comment } from './CommentsPanel';
+
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
-type Comment = {
-  _id?: string;
-  id?: string;
-  text: string;
-  page: number;
-  author: string;
-  timestamp: Date;
+type Poster = {
+  id: string;
+  title?: string;
+  author?: string;
+  fileUrl?: string;
+  filepath?: string;
 };
 
-export default function PDFViewer() {
+/**
+ * Measure any element using ResizeObserver.
+ * IMPORTANT: This must NOT call itself.
+ */
+function useMeasure<T extends HTMLElement>() {
+  const [node, setNode] = useState<T | null>(null);
+  const [rect, setRect] = useState({ width: 0, height: 0 });
+
+  // Track last node to avoid state updates when React re-calls the ref with same element
+  const lastNodeRef = useRef<T | null>(null);
+
+  const ref = React.useCallback((el: T | null) => {
+    if (lastNodeRef.current === el) return;
+    lastNodeRef.current = el;
+    setNode(el);
+  }, []);
+
+  useEffect(() => {
+    if (!node) return;
+
+    const update = () => {
+      const cr = node.getBoundingClientRect();
+      setRect({ width: cr.width, height: cr.height });
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [node]);
+
+  return { ref, rect };
+}
+
+//*************POSTERVIEWER FUNCTION *************************
+export default function PosterViewer({ posterId }: { posterId: string }) {
+  const router = useRouter();
+
+  // --- refs used by mobile zoom ---
+  const zoomSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const resetTransformRef = useRef<null | (() => void)>(null);
+
+  // Poster metadata
+  const [poster, setPoster] = useState<Poster | null>(null);
+  const [error, setError] = useState('');
+
+  // PDF state
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState<number>(1);
+
+  // Comments
   const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState('');
-  const [showCommentModal, setShowCommentModal] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loadingComments, setLoadingComments] = useState(true);
+  const [commentTargetPage, setCommentTargetPage] = useState<number>(1);
 
-  const posterId = 'sample'; // Will make dynamic later
+  // Comment input
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<'add' | 'edit'>('add');
+  const [composerPage, setComposerPage] = useState<number>(1);
+  const [editCommentId, setEditCommentId] = useState<string | null>(null);
+  const [composerInitialText, setComposerInitialText] = useState<string>('');
 
-  // Fetch comments on load
+  // Responsive
+  const [isLandscape, setIsLandscape] = useState(false);
+
+  // Measurements (top-level hooks)
+  const centerMeasure = useMeasure<HTMLDivElement>();
+  const mobileMeasure = useMeasure<HTMLDivElement>();
+
+  // Mobile zoom state
+  const [mobileZoomed, setMobileZoomed] = useState(false);
+
+  // Swipe-to-change-slide (only when not zoomed)
+  const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
+
+  function onSwipeStart(e: React.TouchEvent) {
+    if (mobileZoomed) return;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }
+
+  function onSwipeEnd(e: React.TouchEvent) {
+    if (mobileZoomed) return;
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start) return;
+
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const dt = Date.now() - start.t;
+
+    if (dt > 800) return;
+    if (Math.abs(dx) < 60) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+    if (dx < 0) {
+      const next = Math.min(numPages || pageNumber, pageNumber + 1);
+      setPageNumber(next);
+    } else {
+      const prev = Math.max(1, pageNumber - 1);
+      setPageNumber(prev);
+    }
+  }
+
+  // Keep comment panel synced to current slide (mobile + desktop)
   useEffect(() => {
-    fetchComments();
+    setCommentTargetPage(pageNumber);
+  }, [pageNumber]);
+
+  // Prevent iOS Safari viewport zoom ONLY inside the zoom surface
+  useEffect(() => {
+    const el = zoomSurfaceRef.current;
+    if (!el) return;
+
+    const blockPageZoom = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('touchstart', blockPageZoom, { passive: false });
+    el.addEventListener('touchmove', blockPageZoom, { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart', blockPageZoom as any);
+      el.removeEventListener('touchmove', blockPageZoom as any);
+    };
   }, []);
+
+  // pdf.js worker
+  useEffect(() => {
+    pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  }, []);
+
+  // Track orientation
+  useEffect(() => {
+    const update = () => {
+      setIsLandscape(window.matchMedia('(orientation: landscape)').matches);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  // Load poster + comments
+  useEffect(() => {
+    fetchPoster();
+    fetchComments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posterId]);
+
+  async function fetchPoster() {
+    try {
+      setPoster(null);
+      setError('');
+
+      const res = await fetch(`/api/posters/${posterId}`);
+      if (!res.ok) {
+        setError(`Failed to load poster (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      setPoster(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   async function fetchComments() {
     try {
-      const response = await fetch(`/api/comments?posterId=${posterId}`);
-      if (response.ok) {
-        const data = await response.json();
-        // Convert timestamp strings back to Date objects
-        const commentsWithDates = data.map((c: any) => ({
+      setLoadingComments(true);
+      const res = await fetch(`/api/comments?posterId=${posterId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setComments(
+        (data || []).map((c: any) => ({
           ...c,
           timestamp: new Date(c.timestamp),
-        }));
-        setComments(commentsWithDates);
-      }
-    } catch (error) {
-      console.error('Error fetching comments:', error);
+        }))
+      );
+    } catch (err) {
+      console.error('Error fetching comments:', err);
     } finally {
-      setLoading(false);
+      setLoadingComments(false);
     }
   }
+
+  async function handleDeleteComment(c: { _id?: string; id?: string }) {
+    const id = c._id || c.id;
+    if (!id) return;
+    if (!confirm('Delete this comment?')) return;
+
+    try {
+      const res = await fetch(`/api/comments?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        alert('Failed to delete comment.');
+        return;
+      }
+      await fetchComments();
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Delete failed.');
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Delete this presentation?')) return;
+
+    const res = await fetch(`/api/posters/${posterId}`, { method: 'DELETE' });
+    const j = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(j?.error ?? 'Delete failed');
+      return;
+    }
+
+    router.push('/');
+    router.refresh();
+  }
+
+  const pdfUrl = useMemo(() => poster?.fileUrl || poster?.filepath || '', [poster]);
+
+  const pageComments = useMemo(
+    () => comments.filter((c) => c.page === commentTargetPage),
+    [comments, commentTargetPage]
+  );
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
+    setPageNumber((prev) => (prev < 1 ? 1 : prev > numPages ? numPages : prev));
   }
 
-  async function addComment() {
-    if (!newComment.trim()) return;
-    
-    const comment = {
-      posterId,
-      page: pageNumber,
-      text: newComment,
-      author: 'Anonymous',
+  async function addComment(targetPage: number, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const res = await fetch('/api/comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        posterId,
+        page: targetPage,
+        text: trimmed,
+        author: 'Anonymous',
+      }),
+    });
+
+    if (!res.ok) {
+      alert('Failed to save comment');
+      return;
+    }
+
+    const saved = await res.json();
+    setComments((prev) => [...prev, { ...saved, timestamp: new Date(saved.timestamp) }]);
+  }
+
+  // Desktop center width
+  const centerPageWidth = useMemo(() => {
+    const w = centerMeasure.rect.width || 0;
+    return Math.max(320, Math.floor(w - 48));
+  }, [centerMeasure.rect.width]);
+
+  // Mobile width (measure the actual mobile viewer container)
+  const mobileW = mobileMeasure.rect.width || 0;
+  const mobilePageWidth = Math.max(320, Math.floor(mobileW - 16)); // container has p-2 => 16px total
+
+  // ---- Virtualized mini navigator (react-window v2) ----
+  type NavRowExtraProps = {
+    currentPage: number;
+    onJump: (p: number) => void;
+    thumbWidth: number;
+  };
+
+  const MiniPdfNavigator = ({
+    numPages,
+    currentPage,
+    onJump,
+  }: {
+    numPages: number;
+    currentPage: number;
+    onJump: (page: number) => void;
+  }) => {
+    const { ref, rect } = useMeasure<HTMLDivElement>();
+
+    const thumbWidth = Math.max(140, Math.floor(rect.width) - 16);
+    const thumbHeight = Math.round(thumbWidth * 0.72);
+    const rowHeight = thumbHeight + 44;
+
+    const NavRow = ({
+      index,
+      style,
+      currentPage,
+      onJump,
+      thumbWidth,
+    }: {
+      index: number;
+      style: React.CSSProperties;
+    } & NavRowExtraProps) => {
+      const page = index + 1;
+      const isActive = page === currentPage;
+
+      return (
+        <div style={style} className="px-2 py-2">
+          <button
+            onClick={() => onJump(page)}
+            className={[
+              'w-full rounded-lg border bg-white hover:bg-gray-50 overflow-hidden',
+              isActive ? 'border-blue-600 ring-1 ring-blue-200' : 'border-gray-200',
+            ].join(' ')}
+          >
+            <div className="p-2">
+              <div className="flex justify-center items-center" style={{ height: thumbHeight }}>
+                <Page
+                  pageNumber={page}
+                  width={thumbWidth}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
+              </div>
+              <div className="mt-2 text-xs text-gray-600 text-center">Slide {page}</div>
+            </div>
+          </button>
+        </div>
+      );
     };
 
-    try {
-      const response = await fetch('/api/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(comment),
-      });
+    return (
+      <div className="h-full flex flex-col bg-gray-50">
+        <div className="p-3 border-b bg-white">
+          <div className="text-sm font-semibold text-gray-700">Slides</div>
+          <div className="text-xs text-gray-700">Click a slide to jump</div>
+        </div>
 
-      if (response.ok) {
-        const savedComment = await response.json();
-        setComments([
-          ...comments,
-          {
-            ...savedComment,
-            timestamp: new Date(savedComment.timestamp),
-          },
-        ]);
-        setNewComment('');
-        setShowCommentModal(false);
-      }
-    } catch (error) {
-      console.error('Error saving comment:', error);
-      alert('Failed to save comment. Please try again.');
-    }
-  }
-
-  const pageComments = comments.filter(c => c.page === pageNumber);
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto p-4 md:p-8 max-w-5xl">
-        <h1 className="text-2xl md:text-3xl font-bold mb-6">Interactive Presentation</h1>
-        
-        {/* PDF Viewer - Full Width */}
-        <div className="bg-white rounded-lg shadow-lg p-4 mb-6">
-          <div className="border rounded overflow-hidden bg-white mb-4">
-            <Document
-              file="/sample.pdf"
-              onLoadSuccess={onDocumentLoadSuccess}
-            >
-              <Page 
-                pageNumber={pageNumber}
-                width={typeof window !== 'undefined' ? Math.min(900, window.innerWidth - 64) : 600}
-                renderTextLayer={false}
-                className="mx-auto"
-              />
-            </Document>
-          </div>
-          
-          {/* Navigation Controls */}
-          <div className="flex gap-3 items-center justify-center flex-wrap mb-4">
-            <button 
-              disabled={pageNumber <= 1}
-              onClick={() => setPageNumber(pageNumber - 1)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              ← Previous
-            </button>
-            <span className="font-medium px-4 text-gray-700">
-              Slide {pageNumber} of {numPages}
-            </span>
-            <button 
-              disabled={pageNumber >= numPages}
-              onClick={() => setPageNumber(pageNumber + 1)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              Next →
-            </button>
-          </div>
-
-          {/* Comment Button & Summary */}
-          <div className="border-t pt-4 flex items-center justify-between flex-wrap gap-3">
-            <div className="text-sm text-gray-600">
-              {loading ? (
-                <span>Loading comments...</span>
-              ) : (
-                <>
-                  {pageComments.length} comment{pageComments.length !== 1 ? 's' : ''} on this slide
-                  {comments.length > 0 && (
-                    <span className="ml-2">• {comments.length} total</span>
-                  )}
-                </>
-              )}
-            </div>
-            <button
-              onClick={() => setShowCommentModal(true)}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2"
-            >
-              💬 Add Comment
-            </button>
-          </div>
-
-          {/* Existing Comments on This Slide */}
-          {!loading && pageComments.length > 0 && (
-            <div className="mt-6 space-y-3">
-              <h3 className="font-semibold text-lg">Comments on Slide {pageNumber}:</h3>
-              {pageComments.map(comment => (
-                <div 
-                  key={comment._id || comment.id} 
-                  className="p-4 bg-gray-50 border rounded-lg"
-                >
-                  <div className="flex items-start justify-between mb-2 gap-2">
-                    <span className="font-semibold text-blue-700">
-                      {comment.author}
-                    </span>
-                    <span className="text-xs text-gray-700 whitespace-nowrap">
-                      {comment.timestamp.toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-800 whitespace-pre-wrap">
-                    {comment.text}
-                  </p>
-                </div>
-              ))}
-            </div>
+        <div ref={ref} className="flex-1">
+          {rect.height > 0 && rect.width > 0 && numPages > 0 ? (
+            <List<NavRowExtraProps>
+              rowComponent={NavRow}
+              rowCount={numPages}
+              rowHeight={rowHeight}
+              rowProps={{ currentPage, onJump, thumbWidth }}
+              overscanCount={3}
+              defaultHeight={400}
+              style={{ height: rect.height, width: rect.width }}
+            />
+          ) : (
+            <div className="p-4 text-sm text-gray-700">Loading…</div>
           )}
         </div>
       </div>
+    );
+  };
 
-      {/* Comment Modal */}
-      {showCommentModal && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={() => setShowCommentModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+  // ---------------- Render ----------------
+  if (!poster) {
+    return (
+      <div className="min-h-[100dvh] bg-gray-50 p-8">
+        <Link href="/" className="text-blue-600">
+          ← Back
+        </Link>
+        <div className="mt-6 bg-white p-6 rounded shadow">
+          <p>Loading presentation…</p>
+          {error && <p className="text-red-600 mt-3">{error}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Document file={pdfUrl} onLoadSuccess={onDocumentLoadSuccess}>
+      <div className="min-h-[100dvh] bg-gray-50">
+        {/* Top bar */}
+        <div className="sticky top-0 z-40 bg-white border-b">
+          <div className="mx-auto max-w-6xl px-3 py-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <Link href="/" className="text-blue-600 text-sm whitespace-nowrap">
+                ← Back
+              </Link>
+
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold text-gray-900">{poster.title || 'Untitled'}</div>
+                <div className="truncate text-xs text-gray-700">{poster.author ? `by ${poster.author}` : ''}</div>
+              </div>
+            </div>
+
+            <Link href="/" className="shrink-0">
+              <img src="/presentrxiv-logo.png" alt="PresentrXiv" className="h-10 w-auto" />
+            </Link>
+          </div>
+        </div>
+
+        {/* MOBILE */}
+        <div className="block lg:hidden px-3 py-4 space-y-3">
+          <div className="flex items-center justify-between w-full">
+            <div className="text-sm font-medium text-gray-900">
+              Slide {pageNumber} / {numPages || '?'}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  resetTransformRef.current?.();
+                  setMobileZoomed(false);
+                }}
+                className="px-2 py-1.5 rounded border bg-white text-sm text-gray-700"
+              >
+               FIT
+              </button>
+
+              <button
+                onClick={() => {
+                  resetTransformRef.current?.();
+                  setMobileZoomed(false);
+
+                  setComposerMode('add');
+                  setComposerPage(pageNumber);
+                  setComposerInitialText('');
+                  setEditCommentId(null);
+                  setComposerOpen(true);
+                }}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium"
+              >
+                Comment
+              </button>
+            </div>
+          </div>
+
+          {/* ONE mobile viewer container. Measure THIS. */}
+          <div
+            ref={mobileMeasure.ref}
+            className={`w-full bg-white rounded-lg border p-2 max-w-full overflow-hidden ${
+              isLandscape ? 'h-[calc(100dvh-140px)]' : 'max-h-[55dvh]'
+            }`}
+            onTouchStart={onSwipeStart}
+            onTouchEnd={onSwipeEnd}
           >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">
-                  Add Comment to Slide {pageNumber}
-                </h2>
-                <button
-                  onClick={() => setShowCommentModal(false)}
-                  className="text-gray-700 hover:text-gray-700 text-2xl font-bold"
-                >
-                  ×
-                </button>
-              </div>
+            <TransformWrapper
+              minScale={1}
+              maxScale={4}
+              initialScale={1}
+              wheel={{ disabled: true }}
+              doubleClick={{ mode: 'reset' }}
+              panning={{ disabled: !mobileZoomed, velocityDisabled: true }}
+              onZoomStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+              onPanningStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+              onPinchingStop={(ref: any) => setMobileZoomed((ref?.state?.scale ?? 1) > 1.02)}
+            >
+              {({ resetTransform }) => {
+                resetTransformRef.current = resetTransform;
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Your comment:
-                </label>
-                <textarea
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Share your thoughts about this slide..."
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-900 placeholder-gray-400"
-                  rows={6}
-                  autoFocus
-                />
-                <p className="text-xs text-gray-700 mt-2">
-                  💡 Text highlighting coming soon
-                </p>
-              </div>
+                return (
+                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%' }}>
+                    <div
+                      ref={zoomSurfaceRef}
+                      style={{ touchAction: 'none' }}
+                      className="w-full flex justify-center"
+                    >
+                      <Page
+                        key={`${pageNumber}-${mobilePageWidth}`}
+                        pageNumber={pageNumber}
+                        width={mobilePageWidth}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                    </div>
+                  </TransformComponent>
+                );
+              }}
+            </TransformWrapper>
+          </div>
 
-              <div className="flex gap-3 justify-end">
+          {/* Comments (portrait only) */}
+          {!isLandscape && (
+            <div className="bg-white rounded-lg border">
+              <div className="flex items-center justify-between px-3 py-2 border-b">
+                <div className="text-sm font-semibold text-gray-800">
+                  Comments <span className="text-gray-500 font-normal">({pageComments.length})</span>
+                </div>
+
                 <button
+                  type="button"
                   onClick={() => {
-                    setShowCommentModal(false);
-                    setNewComment('');
+                    setComposerMode('add');
+                    setComposerPage(pageNumber);
+                    setComposerInitialText('');
+                    setEditCommentId(null);
+                    setComposerOpen(true);
                   }}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-2 py-1.5 rounded bg-blue-600 text-white text-sm"
                 >
-                  Cancel
+                  Add
                 </button>
-                <button
-                  onClick={addComment}
-                  disabled={!newComment.trim()}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
-                >
-                  Post Comment
-                </button>
+              </div>
+
+              <div className="max-h-[35dvh] overflow-y-auto px-3 py-2">
+                {loadingComments ? (
+                  <div className="text-sm text-gray-600">Loading…</div>
+                ) : pageComments.length === 0 ? (
+                  <div className="text-sm text-gray-600">No comments yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {pageComments.map((c) => (
+                      <div key={c._id || c.id} className="rounded border border-gray-200 bg-gray-50 p-2">
+                        <div className="text-xs text-gray-500 flex items-center justify-between">
+                          <span>{c.author || 'Anonymous'}</span>
+                          <span>
+                            {c.timestamp instanceof Date
+                              ? c.timestamp.toLocaleString()
+                              : new Date(c.timestamp as any).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{c.text}</div>
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            className="text-xs text-red-700"
+                            onClick={() => handleDeleteComment(c)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="text-center text-xs text-gray-700">
+            {mobileZoomed ? 'Drag to move • Pinch to zoom • Fit to reset' : 'Swipe to change slides'}
+          </div>
+        </div>
+
+        {/* Modal composer */}
+        <CommentComposerModal
+          open={composerOpen}
+          mode={composerMode}
+          page={composerPage}
+          numPages={numPages}
+          initialText={composerInitialText}
+          onClose={() => setComposerOpen(false)}
+          onSubmit={async (text) => {
+            await addComment(composerPage, text);
+            setComposerOpen(false);
+          }}
+        />
+
+        {/* DESKTOP */}
+        <div
+          className="
+            hidden lg:grid
+            lg:grid-cols-[clamp(190px,20vw,260px)_minmax(0,1fr)_clamp(240px,25vw,320px)]
+            lg:gap-3
+            lg:max-w-none lg:mx-auto lg:px-4 lg:py-4
+            xl:grid-cols-[clamp(220px,20vw,280px)_minmax(0,1fr)_clamp(280px,25vw,340px)]
+            xl:gap-4 xl:px-4
+          "
+        >
+          {/* Left nav */}
+          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+            {numPages > 0 ? (
+              <MiniPdfNavigator numPages={numPages} currentPage={pageNumber} onJump={(p) => setPageNumber(p)} />
+            ) : (
+              <div className="p-4 text-sm text-gray-700">Loading…</div>
+            )}
+          </div>
+
+          {/* Center viewer */}
+          <div ref={centerMeasure.ref} className="min-w-0 h-[calc(100vh-76px)] rounded-lg border bg-white">
+            <div className="h-full overflow-x-auto overflow-y-auto" style={{ touchAction: 'none' }}>
+              <div className="p-3 border-b flex items-center justify-between">
+                <div className="text-sm text-gray-700">
+                  Slide <span className="font-semibold text-gray-700">{pageNumber}</span> of{' '}
+                  <span className="font-semibold text-gray-700">{numPages || '…'}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={pageNumber <= 1}
+                    onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
+                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    disabled={numPages === 0 || pageNumber >= numPages}
+                    onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
+                    className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3">
+                <div className="mx-auto w-full">
+                  <div className="w-full flex justify-center">
+                    <Page
+                      pageNumber={pageNumber}
+                      width={centerPageWidth}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      className="mx-auto"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Right comments */}
+          <div className="h-[calc(100vh-76px)] rounded-lg border overflow-hidden bg-white">
+            <CommentsPanel
+              page={pageNumber}
+              numPages={numPages || 0}
+              loading={loadingComments}
+              comments={pageComments}
+              onOpenAdd={() => {
+                setComposerMode('add');
+                setComposerPage(pageNumber);
+                setComposerInitialText('');
+                setEditCommentId(null);
+                setComposerOpen(true);
+              }}
+              onDelete={handleDeleteComment}
+            />
+          </div>
+
+          {/* Delete */}
+          <div className="border-t mt-12 pt-6 col-span-3">
+            <div className="max-w-6xl mx-auto px-4 flex justify-end">
+              <button
+                onClick={handleDelete}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition"
+              >
+                Delete Presentation
+              </button>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </Document>
   );
 }
